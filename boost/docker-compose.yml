@@ -1,0 +1,68 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: rewards
+      MYSQL_USER: rewards
+      MYSQL_PASSWORD: rewards
+      MYSQL_ROOT_PASSWORD: root_change_me
+    ports:
+      - "3306:3306"
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot_change_me"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # Giao diện web xem key Redis (Redis Insight). Mở http://localhost:5540 → Add database → Host: redis, Port: 6379
+  redis-insight:
+    image: redis/redisinsight:latest
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis
+
+  boost:
+    build: .
+    image: turbo-pos-boost:latest
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/rewards?allowPublicKeyRetrieval=true&useSSL=false&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: rewards
+      SPRING_DATASOURCE_PASSWORD: rewards
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0"
+
+  rewards-batch:
+    build: ./rewards-batch
+    image: turbo-pos-rewards-batch:latest
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/rewards?allowPublicKeyRetrieval=true&useSSL=false&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: rewards
+      SPRING_DATASOURCE_PASSWORD: rewards
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+
+volumes: {}

@@ -1,0 +1,20 @@
+# Chạy: --spring.profiles.active=mysql-only
+# App không khởi tạo Redis/Redisson; rewards chỉ dùng MySQL (row lock / lost update demo).
+spring:
+  config:
+    activate:
+      on-profile: mysql-only
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.redisson.spring.starter.RedissonAutoConfigurationV2
+
+app:
+  rewards:
+    mode: mysql-only
+
+management:
+  health:
+    redis:
+      enabled: false

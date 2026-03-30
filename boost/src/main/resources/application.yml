@@ -1,0 +1,69 @@
+server:
+  port: 8080
+
+spring:
+  threads:
+    virtual:
+      enabled: false
+
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      lettuce:
+        pool:
+          max-active: 128
+          max-idle: 64
+
+  autoconfigure:
+    exclude:
+      - org.redisson.spring.starter.RedissonAutoConfigurationV2
+
+logging:
+  level:
+    turbo.pos.boost: DEBUG
+
+# redis (default) | mysql-only — profile mysql-only bật sẵn trong application-mysql-only.yml
+app:
+  rewards:
+    mode: redis
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+      cors:
+        allowed-origins: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
+        allowed-methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+        allowed-headers: "*"
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    redis:
+      enabled: true
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      redisNoLock:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - turbo.pos.boost.service.RedisUnavailableException
+      redisLocking:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - turbo.pos.boost.service.RedisUnavailableException

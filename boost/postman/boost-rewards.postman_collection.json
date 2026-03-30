@@ -1,0 +1,123 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Boost — Rewards API",
+		"description": "Boost: rewards (Redis+Redisson / mysql-only), ledger MySQL, Actuator health. Import → chọn file. `GET points` có field `source` (redis|mysql).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		},
+		{
+			"key": "customerId",
+			"value": "customer-001"
+		},
+		{
+			"key": "transactionId",
+			"value": "txn-postman-001"
+		}
+	],
+	"item": [
+		{
+			"name": "GET current points",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": "{{baseUrl}}/api/rewards/points/{{customerId}}",
+				"description": "Điểm theo chế độ: mặc định Redis; profile mysql-only → MySQL `customer_balance`. Response: customerId, points, source."
+			}
+		},
+		{
+			"name": "GET balance compare (Redis vs MySQL)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": "{{baseUrl}}/api/rewards/balance/compare/{{customerId}}",
+				"description": "mysqlBalance vs redisPoints, inSync. Sau nhiều /lock (redis mode) thường inSync=true; chỉ /no-lock thì Redis có thể lệch MySQL."
+			}
+		},
+		{
+			"name": "GET Actuator health",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": "{{baseUrl}}/actuator/health",
+				"description": "Trạng thái db, redis (tắt redis health khi profile mysql-only)."
+			}
+		},
+		{
+			"name": "POST platform / no-lock",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
+				},
+				"url": "{{baseUrl}}/api/rewards/platform/no-lock",
+				"description": "Thread pool platform (200) — không lock (race có thể xảy ra)."
+			}
+		},
+		{
+			"name": "POST platform / lock",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
+				},
+				"url": "{{baseUrl}}/api/rewards/platform/lock",
+				"description": "Platform + Redisson lock; ghi ledger + customer_balance MySQL; đồng bộ Redis."
+			}
+		},
+		{
+			"name": "POST virtual / no-lock",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
+				},
+				"url": "{{baseUrl}}/api/rewards/virtual/no-lock",
+				"description": "Virtual threads — không lock."
+			}
+		},
+		{
+			"name": "POST virtual / lock",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
+				},
+				"url": "{{baseUrl}}/api/rewards/virtual/lock",
+				"description": "Virtual + Redisson lock + MySQL ledger."
+			}
+		}
+	]
+}

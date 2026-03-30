@@ -1,0 +1,36 @@
+server:
+  port: 8081
+
+spring:
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/rewards?allowPublicKeyRetrieval=true&useSSL=false&characterEncoding=UTF-8}
+    username: ${SPRING_DATASOURCE_USERNAME:rewards}
+    password: ${SPRING_DATASOURCE_PASSWORD:rewards}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+app:
+  outbox:
+    redis-list-key: rewards:outbox
+    batch-size: 200
+    fixed-delay-ms: 60000  # 1 phút chạy 1 lần (fixedDelay)
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    turbo.pos.rewardsbatch: INFO
+
