@@ -1,59 +1,52 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import RewardsDemo from "./views/RewardsDemo.vue";
-import UsersDemo from "./views/UsersDemo.vue";
-import LoadTestDemo from "./views/LoadTestDemo.vue";
+import { useRoute } from 'vue-router'
 
-type Tab = "rewards" | "users" | "load";
+const route = useRoute()
 
-const tab = ref<Tab>("rewards");
-const title = computed(() => {
-  if (tab.value === "rewards") return "Thanh toán / Rewards";
-  if (tab.value === "users") return "Users API";
-  return "Load test (DDoS giả lập)";
-});
+const NAV = [
+  { to: '/load-test', label: 'Load Test',  icon: '⚡' },
+  { to: '/rewards',   label: 'Rewards',    icon: '🎁' },
+  { to: '/users',     label: 'Users',      icon: '👤' },
+  { to: '/history',   label: 'History',    icon: '📋' },
+  { to: '/batch',     label: 'Batch',      icon: '⚙️' },
+] as const
+
+const PAGE_TITLES: Record<string, string> = {
+  '/load-test': 'Load Test',
+  '/rewards':   'Rewards',
+  '/users':     'Quản lý Users',
+  '/history':   'Lịch sử giao dịch',
+  '/batch':     'Batch / Outbox',
+}
 </script>
 
 <template>
   <div class="app">
     <header class="topbar">
-      <div class="brand">
-        <div class="brand__title">Boost Demo</div>
-      </div>
+      <div class="brand">Boost Demo</div>
 
-      <nav class="tabs" aria-label="Navigation tabs">
-        <button
+      <nav class="tabs">
+        <router-link
+          v-for="n in NAV"
+          :key="n.to"
+          :to="n.to"
           class="tab"
-          :data-active="tab === 'rewards'"
-          @click="tab = 'rewards'"
+          :class="{ 'tab--active': route.path === n.to }"
         >
-          Rewards
-        </button>
-        <button
-          class="tab"
-          :data-active="tab === 'users'"
-          @click="tab = 'users'"
-        >
-          Users
-        </button>
-        <button class="tab" :data-active="tab === 'load'" @click="tab = 'load'">
-          Load test
-        </button>
+          <span class="tab__icon">{{ n.icon }}</span>
+          <span class="tab__label">{{ n.label }}</span>
+        </router-link>
       </nav>
     </header>
 
     <main class="main">
-      <h1 class="page-title">{{ title }}</h1>
-      <RewardsDemo v-if="tab === 'rewards'" />
-      <UsersDemo v-else-if="tab === 'users'" />
-      <LoadTestDemo v-else />
+      <h1 class="page-title">{{ PAGE_TITLES[route.path] ?? 'Boost Demo' }}</h1>
+      <router-view />
     </main>
 
     <footer class="footer">
-      <div>
-        Proxy dev: gọi <code>/api</code> và <code>/actuator</code> → backend
-        (mặc định <code>localhost:8080</code>).
-      </div>
+      Proxy dev: <code>/api</code> và <code>/actuator</code> → backend (mặc định
+      <code>localhost:8080</code>)
     </footer>
   </div>
 </template>
@@ -63,12 +56,7 @@ const title = computed(() => {
   min-height: 100vh;
   background: #0b1020;
   color: #e8ecff;
-  font-family:
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    sans-serif;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
 .topbar {
@@ -76,74 +64,91 @@ const title = computed(() => {
   top: 0;
   z-index: 10;
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 20px;
-  background: rgba(11, 16, 32, 0.8);
-  backdrop-filter: blur(10px);
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  height: 52px;
+  background: rgba(11, 16, 32, 0.88);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(232, 236, 255, 0.08);
 }
 
-.brand__title {
-  font-weight: 700;
-  letter-spacing: 0.3px;
-}
-
-.brand__sub {
-  opacity: 0.75;
-  font-size: 13px;
-  margin-top: 2px;
+.brand {
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tabs {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   align-items: center;
+  overflow-x: auto;
 }
 
 .tab {
-  appearance: none;
-  border: 1px solid rgba(232, 236, 255, 0.18);
-  background: rgba(232, 236, 255, 0.04);
-  color: inherit;
-  padding: 8px 12px;
-  border-radius: 10px;
-  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  color: rgba(232, 236, 255, 0.65);
+  font-size: 13px;
   font-weight: 600;
-  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
-.tab[data-active="true"] {
-  border-color: rgba(140, 170, 255, 0.55);
-  background: rgba(140, 170, 255, 0.14);
+.tab:hover {
+  background: rgba(232, 236, 255, 0.06);
+  color: #e8ecff;
+}
+
+.tab--active {
+  border-color: rgba(140, 170, 255, 0.45);
+  background: rgba(140, 170, 255, 0.12);
+  color: #c7d4ff;
+}
+
+.tab__icon {
+  font-size: 14px;
+  line-height: 1;
 }
 
 .main {
-  width: min(1100px, calc(100% - 40px));
+  width: min(1200px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 22px 0 32px;
+  padding: 22px 0 40px;
 }
 
 .page-title {
   font-size: 20px;
-  margin: 0 0 14px;
+  font-weight: 700;
+  margin: 0 0 16px;
 }
 
 .footer {
-  width: min(1100px, calc(100% - 40px));
+  width: min(1200px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 14px 0 24px;
-  opacity: 0.7;
-  font-size: 13px;
+  padding: 12px 0 24px;
+  opacity: 0.5;
+  font-size: 12px;
 }
 
 code {
-  font-family:
-    ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-    monospace;
+  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
   background: rgba(232, 236, 255, 0.08);
   border: 1px solid rgba(232, 236, 255, 0.12);
-  padding: 2px 6px;
-  border-radius: 8px;
+  padding: 1px 5px;
+  border-radius: 6px;
+}
+
+@media (max-width: 640px) {
+  .tab__label { display: none; }
+  .tab { padding: 6px 10px; }
 }
 </style>

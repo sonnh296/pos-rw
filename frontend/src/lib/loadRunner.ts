@@ -12,7 +12,10 @@ export type LoadResultItem = {
 }
 
 export async function runLoad(
-  task: (timeoutMs?: number) => Promise<{ ok: true; status?: number } | { ok: false; status?: number; error: string }>,
+  task: (
+    timeoutMs: number | undefined,
+    requestIndex: number
+  ) => Promise<{ ok: true; status?: number } | { ok: false; status?: number; error: string }>,
   opts: LoadOptions,
   onProgress?: (done: number, ok: number, fail: number) => void
 ): Promise<LoadResultItem[]> {
@@ -30,7 +33,7 @@ export async function runLoad(
       const i = cursor++
       if (i >= total) return
       const start = performance.now()
-      const r = await task(opts.timeoutMs)
+      const r = await task(opts.timeoutMs, i)
       const elapsedMs = Math.round(performance.now() - start)
       if (r.ok) ok++
       else fail++

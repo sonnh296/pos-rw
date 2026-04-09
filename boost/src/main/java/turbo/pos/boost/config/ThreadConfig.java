@@ -8,26 +8,37 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.core.task.support.TaskExecutorAdapter;
 
 /*
- * CHỨNG MINH: Virtual Threads vs Platform Threads
+ * Ba mô hình threading để so sánh:
  *
- * Platform Thread Pool(200):
- *   - Tối đa 200 threads OS thực
- *   - Thread thứ 201 phải CHỜ thread trước xong mới được chạy
- *   - Mỗi thread tốn ~1MB RAM stack
- *   - Khi thread đang sleep(IO) → vẫn CHIẾM OS thread, không làm gì
+ * [single] newSingleThreadExecutor — 1 OS thread duy nhất
+ *   - Mọi request xếp hàng, xử lý tuần tự
+ *   - Concurrency 10 cũng đã thấy latency tăng tuyến tính
+ *   - Dùng làm baseline tệ nhất để thấy tại sao cần multithread
  *
- * Virtual Thread (Project Loom):
- *   - Không giới hạn số lượng (hàng triệu)
- *   - Khi gặp IO (sleep, network, Redis call) → TỰ ĐỘNG nhả OS thread
- *   - OS thread được tái sử dụng cho virtual thread khác ngay lập tức
- *   - RAM: chỉ vài KB per virtual thread
+ * [platform] newFixedThreadPool(200) — 200 OS threads cố định
+ *   - Xử lý song song tối đa 200 request
+ *   - Request thứ 201+ phải chờ thread pool → latency tăng
+ *   - Mỗi thread chiếm ~1MB RAM stack, block thực sự khi chờ I/O
+ *   - Lợi thế rõ khi concurrency < 200
  *
- * Với Thread.sleep(50ms) trong service = simulate IO:
- *   - Platform/200 + 500 users: 300 users phải chờ → latency tăng vọt
- *   - Virtual + 500 users: tất cả chạy ngay → latency thấp, throughput cao
+ * [virtual] newVirtualThreadPerTaskExecutor — JDK Virtual Threads (Project Loom)
+ *   - 1 virtual thread per request, không giới hạn số lượng
+ *   - Khi block I/O (DB, Redis, sleep) → tự nhả OS carrier thread
+ *   - OS thread được tái sử dụng ngay cho virtual thread khác
+ *   - Lợi thế rõ khi concurrency > 200 (vượt platform pool)
+ *
+ * Ngưỡng thấy rõ sự khác biệt:
+ *   concurrency <  200 → single thua, platform ≈ virtual
+ *   concurrency >  200 → single thua nặng, platform bắt đầu queue, virtual vẫn smooth
+ *   concurrency >= 500 → virtual thắng rõ ràng so với platform
  */
 @Configuration
 public class ThreadConfig {
+
+	@Bean("singleExecutor")
+	public TaskExecutor singleExecutor() {
+		return new TaskExecutorAdapter(Executors.newSingleThreadExecutor());
+	}
 
 	@Bean("platformExecutor")
 	public TaskExecutor platformExecutor() {

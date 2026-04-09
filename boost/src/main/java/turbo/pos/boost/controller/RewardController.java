@@ -26,6 +26,18 @@ public class RewardController {
 	private final LockingRewardService lockingRewardService;
 	private final RewardBalanceQueryService rewardBalanceQueryService;
 
+	@PostMapping("/single/no-lock")
+	@Async("singleExecutor")
+	public CompletableFuture<RewardResponse> singleNoLock(@RequestBody TransactionRequest request) {
+		return CompletableFuture.completedFuture(noLockRewardService.processReward(request));
+	}
+
+	@PostMapping("/single/lock")
+	@Async("singleExecutor")
+	public CompletableFuture<RewardResponse> singleLock(@RequestBody TransactionRequest request) {
+		return CompletableFuture.completedFuture(lockingRewardService.processReward(request));
+	}
+
 	@PostMapping("/platform/no-lock")
 	@Async("platformExecutor")
 	public CompletableFuture<RewardResponse> platformNoLock(@RequestBody TransactionRequest request) {
