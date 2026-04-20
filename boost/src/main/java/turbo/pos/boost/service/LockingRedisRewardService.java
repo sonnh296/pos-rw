@@ -15,12 +15,8 @@ import java.time.OffsetDateTime;
 import java.util.concurrent.TimeUnit;
 
 /**
- * POS "hot path" (khi Redis OK):
- * - Lock theo {@code customerId} bằng Redisson (distributed lock).
- * - Tính/cộng điểm tạm trên Redis để trả kết quả nhanh (không block quầy).
- * - Đẩy event vào outbox trên Redis; module {@code rewards-batch} sẽ drain và ghi vĩnh viễn xuống MySQL.
- *
- * Nếu Redis/Redisson chết giữa chừng: ném {@link RedisUnavailableException} để circuit breaker fallback sang MySQL.
+ * Redis path: Redisson lock theo customer, cộng điểm cache + outbox; rewards-batch ghi MySQL.
+ * Redis lỗi → {@link RedisUnavailableException} → fallback MySQL.
  */
 @Slf4j
 @Service
@@ -30,10 +26,18 @@ public class LockingRedisRewardService {
 
     private static final String HASH_KEY = "customer:points";
     private static final String OUTBOX_KEY = "rewards:outbox";
+    private static final String EXPECTED_PREFIX = "expected:";
 
     private final RedissonClient redissonClient;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+
+    /** Thời gian chờ lock (p2 hotspot cần đủ lớn để tránh LOCK_FAILED giả). */
+    @org.springframework.beans.factory.annotation.Value("${app.rewards.lock.wait-seconds:30}")
+    private long lockWaitSeconds;
+
+    @org.springframework.beans.factory.annotation.Value("${app.rewards.lock.lease-seconds:5}")
+    private long lockLeaseSeconds;
 
     public RewardResponse processReward(TransactionRequest request) {
         long start = System.currentTimeMillis();
@@ -45,7 +49,7 @@ public class LockingRedisRewardService {
         boolean acquired = false;
 
         try {
-            acquired = lock.tryLock(3, 5, TimeUnit.SECONDS);
+            acquired = lock.tryLock(lockWaitSeconds, lockLeaseSeconds, TimeUnit.SECONDS);
             if (!acquired) {
                 return RewardResponse.builder()
                         .customerId(customerId)
@@ -76,13 +80,16 @@ public class LockingRedisRewardService {
 
             long pointsDelta = Math.round(request.getAmount() * 10);
 
+            // SUCCESS: bump expected (DUPLICATE không bump).
+            redis.opsForValue().increment(EXPECTED_PREFIX + customerId, pointsDelta);
+
             // Fast temporary update (read path)
             Long newPoints = redis.opsForHash().increment(HASH_KEY, customerId, pointsDelta);
             if (newPoints == null) {
                 newPoints = 0L;
             }
 
-            // Enqueue outbox to be persisted by rewards-batch (PostgreSQL)
+            // Outbox → rewards-batch → MySQL
             String outboxJson = objectMapper.writeValueAsString(new RewardOutboxEvent(
                     customerId,
                     txnId,

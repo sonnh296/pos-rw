@@ -12,16 +12,12 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Batch “cuối ngày / async”:
- * - Drain outbox từ Redis list (POS API push vào {@code rewards:outbox}).
- * - Ghi vĩnh viễn xuống MySQL (ledger + balance) để đối soát/audit.
- *
- * Thiết kế best-effort: log lỗi và tiếp tục để phục vụ benchmark/demo.
- * Payload là JSON string (transactionId, customerId, amount, pointsDelta, createdAt).
+ * Drain {@code rewards:outbox} → MySQL ledger/balance. Best-effort (log và tiếp tục). Payload JSON.
  */
 @Slf4j
 @Component
@@ -40,14 +36,25 @@ public class OutboxDrainer {
 
     @Scheduled(fixedDelayString = "${app.outbox.fixed-delay-ms:1000}")
     public void drainOnce() {
+        long startedNs = System.nanoTime();
         List<String> items = popBatch();
-        if (items.isEmpty()) {
-            return;
-        }
+        int persisted = 0;
+        int duplicates = 0;
+        int failed = 0;
+
         for (String json : items) {
-            persistOne(json);
+            PersistResult r = persistOne(json);
+            switch (r) {
+                case PERSISTED -> persisted++;
+                case DUPLICATE -> duplicates++;
+                case FAILED -> failed++;
+            }
         }
-        log.info("Drained {} outbox items", items.size());
+        Duration took = Duration.ofNanos(System.nanoTime() - startedNs);
+        log.info(
+                "Outbox sync completed (key={}, batchSize={}, fetched={}, persisted={}, duplicates={}, failed={}, tookMs={})",
+                outboxKey, batchSize, items.size(), persisted, duplicates, failed, took.toMillis()
+        );
     }
 
     private List<String> popBatch() {
@@ -62,7 +69,7 @@ public class OutboxDrainer {
         return items;
     }
 
-    private void persistOne(String json) {
+    private PersistResult persistOne(String json) {
         try {
             RewardOutboxEvent ev = objectMapper.readValue(json, RewardOutboxEvent.class);
 
@@ -70,23 +77,38 @@ public class OutboxDrainer {
                     .param(ev.customerId())
                     .update();
 
-            try {
-                jdbc.sql("INSERT INTO reward_ledger (customer_id, transaction_id, amount, points_delta, created_at) VALUES (?, ?, ?, ?, ?)")
-                        .params(ev.customerId(), ev.transactionId(), ev.amount(), ev.pointsDelta(), ev.createdAt())
-                        .update();
-            } catch (DataIntegrityViolationException dup) {
-                // Idempotency at DB level: transaction_id UNIQUE.
-                return;
+            if (!insertLedger(ev)) {
+                return PersistResult.DUPLICATE;
             }
 
             jdbc.sql("UPDATE customer_balance SET balance = balance + ? WHERE customer_id = ?")
                     .param(ev.pointsDelta())
                     .param(ev.customerId())
                     .update();
+            return PersistResult.PERSISTED;
         } catch (Exception e) {
             // Best-effort: log and continue (benchmark friendly)
             log.error("Failed to persist outbox item", e);
+            return PersistResult.FAILED;
         }
+    }
+
+    private boolean insertLedger(RewardOutboxEvent ev) {
+        try {
+            jdbc.sql("INSERT INTO reward_ledger (customer_id, transaction_id, amount, points_delta, created_at) VALUES (?, ?, ?, ?, ?)")
+                    .params(ev.customerId(), ev.transactionId(), ev.amount(), ev.pointsDelta(), ev.createdAt())
+                    .update();
+            return true;
+        } catch (DataIntegrityViolationException dup) {
+            // Idempotency at DB level: transaction_id UNIQUE.
+            return false;
+        }
+    }
+
+    private enum PersistResult {
+        PERSISTED,
+        DUPLICATE,
+        FAILED
     }
 
     public record RewardOutboxEvent(

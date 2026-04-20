@@ -1,186 +1,470 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { apiFetch, jsonBody } from '../lib/api'
+import { ref, computed, onMounted } from "vue";
+import { apiFetch } from "../lib/api";
 
-type UserDto = { id: string; name: string; email?: string | null; createdAt: string }
+type CustomerPointRow = {
+  customerId: string;
+  mysqlBalance: number;
+  redisPoints: number | null;
+  primaryPoints: number;
+  source: "mysql" | "redis";
+  inSync: boolean;
+  updatedAt?: string | null;
+};
+type CustomerPointListResponse = {
+  rows: CustomerPointRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  keyword: string;
+};
+type RunSummary = {
+  hasData: boolean;
+  message?: string;
+  testCaseKey?: string;
+  testCaseLabel?: string;
+  expectedResult?: string;
+  validationGuide?: string;
+  fileName?: string;
+  filePath?: string;
+  runTag?: string;
+  modifiedAt?: string | null;
+  samples?: number;
+  ok?: number;
+  fail?: number;
+  errorPct?: number;
+  avgMs?: number;
+  p95Ms?: number;
+  p99Ms?: number;
+  maxMs?: number;
+  throughputRps?: number;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  hotspotCustomerId?: string;
+  expectedPoints?: number;
+  actualPoints?: number;
+  pointsDiff?: number;
+  raceDetected?: boolean;
+  dirtyData?: boolean;
+  verdict?:
+    | "RACE_DETECTED"
+    | "CONSISTENT"
+    | "DIRTY_DATA"
+    | "LOST_UPDATE_DETECTED"
+    | "IDEMPOTENT_OK"
+    | "IDEMPOTENCY_VIOLATED"
+    | "UNDER_APPLIED"
+    | "INCONCLUSIVE";
+  expectedDuplicates?: number;
+  successfulApplies?: number;
+  idempotencyCustomerId?: string;
+};
+type PhaseSummary = {
+  phaseKey: string;
+  phaseTitle: string;
+  rows: RunSummary[];
+};
+type PhaseSummaryResponse = {
+  phases: PhaseSummary[];
+};
 
-const users = ref<UserDto[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
+const pointsRows = ref<CustomerPointRow[]>([]);
+const pointsLoading = ref(false);
+const pointsError = ref<string | null>(null);
+const clearError = ref<string | null>(null);
+const clearMessage = ref<string | null>(null);
+const pointsSearch = ref("");
+const pointsLimit = ref(20);
+const pointsOffset = ref(0);
+const pointsTotal = ref(0);
+const phases = ref<PhaseSummary[]>([]);
+const runLoading = ref(false);
+const runError = ref<string | null>(null);
 
-// Create form
-const newName = ref('')
-const newEmail = ref('')
+const visiblePhases = computed(() => {
+  // Remove Phase 4-7 test cases from frontend UI (no data yet / not in scope).
+  const hidden = new Set(["p4", "p5", "p6", "p7"]);
+  return phases.value.filter((p) => !hidden.has(p.phaseKey));
+});
 
-// Edit state
-const editId = ref<string | null>(null)
-const editName = ref('')
-const editEmail = ref('')
+async function loadPoints() {
+  pointsLoading.value = true;
+  pointsError.value = null;
+  const keyword = pointsSearch.value.trim();
+  const q = new URLSearchParams({
+    limit: String(pointsLimit.value),
+    offset: String(pointsOffset.value),
+  });
+  if (keyword) q.set("keyword", keyword);
 
-// Search
-const search = ref('')
-
-const filtered = computed(() => {
-  const q = search.value.toLowerCase()
-  if (!q) return users.value
-  return users.value.filter(
-    (u) => u.name.toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q),
-  )
-})
-
-async function load() {
-  loading.value = true
-  error.value = null
-  const res = await apiFetch<UserDto[]>('/api/users')
-  loading.value = false
-  if (!res.ok) { error.value = res.error.message; return }
-  users.value = res.data
+  const res = await apiFetch<CustomerPointListResponse>(
+    `/api/rewards/points?${q.toString()}`,
+  );
+  pointsLoading.value = false;
+  if (!res.ok) {
+    pointsError.value = res.error.message;
+    return;
+  }
+  pointsRows.value = res.data.rows ?? [];
+  pointsTotal.value = Number(res.data.total ?? 0);
 }
 
-async function create() {
-  if (!newName.value.trim()) return
-  loading.value = true
-  error.value = null
-  const res = await apiFetch<UserDto>('/api/users', {
-    method: 'POST',
-    ...jsonBody({ name: newName.value.trim(), email: newEmail.value.trim() || null }),
-  })
-  loading.value = false
-  if (!res.ok) { error.value = res.error.message; return }
-  users.value = [res.data, ...users.value]
-  newName.value = ''
-  newEmail.value = ''
+async function loadRunSummaries() {
+  runLoading.value = true;
+  runError.value = null;
+  const res = await apiFetch<PhaseSummaryResponse>("/api/test-runs/phases");
+  runLoading.value = false;
+  if (!res.ok) {
+    runError.value = res.error.message;
+    return;
+  }
+  phases.value = res.data.phases ?? [];
 }
 
-function startEdit(u: UserDto) {
-  editId.value = u.id
-  editName.value = u.name
-  editEmail.value = u.email ?? ''
+async function clearAllData() {
+  if (!confirm("Xóa toàn bộ dữ liệu điểm và lịch sử giao dịch để reset test?"))
+    return;
+  pointsLoading.value = true;
+  clearError.value = null;
+  clearMessage.value = null;
+
+  const res = await apiFetch<Record<string, unknown>>(
+    "/api/rewards/points/clear",
+    {
+      method: "POST",
+    },
+  );
+  pointsLoading.value = false;
+
+  if (!res.ok) {
+    clearError.value = res.error.message;
+    return;
+  }
+
+  const data = res.data as Record<string, unknown>;
+  const flushed = data.redisFlushed === true;
+  // clearMessage.value = flushed
+  //   ? "Đã xóa MySQL + FLUSHDB Redis. Hệ thống đã sạch."
+  //   : "Đã xóa MySQL + Redis keys (FLUSHDB thất bại, có thể còn key tồn dư).";
+  pointsOffset.value = 0;
+  await loadPoints();
+  await loadRunSummaries();
 }
 
-function cancelEdit() {
-  editId.value = null
+async function searchPoints() {
+  pointsOffset.value = 0;
+  await loadPoints();
 }
 
-async function saveEdit(id: string) {
-  loading.value = true
-  error.value = null
-  const res = await apiFetch<UserDto>(`/api/users/${id}`, {
-    method: 'PUT',
-    ...jsonBody({ name: editName.value.trim(), email: editEmail.value.trim() || null }),
-  })
-  loading.value = false
-  if (!res.ok) { error.value = res.error.message; return }
-  const idx = users.value.findIndex((u) => u.id === id)
-  if (idx !== -1) users.value[idx] = res.data
-  editId.value = null
+async function prevPoints() {
+  if (pointsOffset.value <= 0) return;
+  pointsOffset.value = Math.max(0, pointsOffset.value - pointsLimit.value);
+  await loadPoints();
 }
 
-async function remove(id: string) {
-  if (!confirm('Xóa user này?')) return
-  loading.value = true
-  error.value = null
-  const res = await apiFetch<void>(`/api/users/${id}`, { method: 'DELETE' })
-  loading.value = false
-  if (!res.ok) { error.value = res.error.message; return }
-  users.value = users.value.filter((u) => u.id !== id)
+async function nextPoints() {
+  const next = pointsOffset.value + pointsLimit.value;
+  if (next >= pointsTotal.value) return;
+  pointsOffset.value = next;
+  await loadPoints();
 }
 
 function fmtDate(s: string) {
-  try { return new Date(s).toLocaleString('vi-VN') } catch { return s }
+  try {
+    return new Date(s).toLocaleString("vi-VN");
+  } catch {
+    return s;
+  }
 }
 
-onMounted(load)
+function fmtPoints(v: number | null | undefined) {
+  if (v == null) return "—";
+  return Number(v).toLocaleString("vi-VN");
+}
+
+const pointsPageText = computed(() => {
+  if (pointsTotal.value === 0 || pointsRows.value.length === 0) return "0/0";
+  const from = pointsOffset.value + 1;
+  const to = pointsOffset.value + pointsRows.value.length;
+  return `${from}-${to}/${pointsTotal.value}`;
+});
+
+function barWidth(value: number | null | undefined, maxValue: number) {
+  const v = Number(value ?? 0);
+  return `${Math.max(0, Math.min(100, (v / maxValue) * 100))}%`;
+}
+
+function verdictClass(row: RunSummary) {
+  const v = row.verdict;
+  if (v === "DIRTY_DATA") return "race-box--warn";
+  if (
+    v === "RACE_DETECTED" ||
+    v === "LOST_UPDATE_DETECTED" ||
+    v === "IDEMPOTENCY_VIOLATED" ||
+    v === "UNDER_APPLIED"
+  )
+    return "race-box--bad";
+  if (v === "INCONCLUSIVE") return "race-box--warn";
+  return "race-box--ok";
+}
+
+function verdictText(row: RunSummary) {
+  switch (row.verdict) {
+    case "DIRTY_DATA":
+      return "ℹ Dirty data (clear before re-run)";
+    case "RACE_DETECTED":
+      return "⚠ Race detected";
+    case "LOST_UPDATE_DETECTED":
+      return "⚠ Lost update detected (lock bị phá vỡ)";
+    case "IDEMPOTENT_OK":
+      return "✅ Idempotent (chỉ apply 1 lần)";
+    case "IDEMPOTENCY_VIOLATED":
+      return "⚠ Idempotency violated (cùng txnId bị cộng nhiều lần)";
+    case "UNDER_APPLIED":
+      return "⚠ Under applied (SUCCESS nhưng actual < expected)";
+    case "INCONCLUSIVE":
+      return "ℹ Inconclusive (Redis không khả dụng hoặc thiếu dữ liệu)";
+    default:
+      return "✅ Consistent";
+  }
+}
+
+function phaseMaxLatency(rows: RunSummary[]) {
+  const values = rows
+    .filter((r) => r.hasData)
+    .flatMap((r) => [Number(r.avgMs ?? 0), Number(r.p95Ms ?? 0)]);
+  const max = Math.max(...values, 0);
+  return max <= 0 ? 1 : max;
+}
+
+function phaseMaxThroughput(rows: RunSummary[]) {
+  const values = rows
+    .filter((r) => r.hasData)
+    .map((r) => Number(r.throughputRps ?? 0));
+  const max = Math.max(...values, 0);
+  return max <= 0 ? 1 : max;
+}
+
+onMounted(async () => {
+  await loadPoints();
+  await loadRunSummaries();
+});
 </script>
 
 <template>
   <div class="page">
-    <!-- Create form -->
-    <section class="card">
-      <div class="card__title">Thêm user mới</div>
-      <div class="form-row">
-        <label class="field">
-          <div class="field__label">Name *</div>
-          <input v-model="newName" class="input" placeholder="Tên user" @keyup.enter="create" />
-        </label>
-        <label class="field">
-          <div class="field__label">Email</div>
-          <input v-model="newEmail" class="input" placeholder="email@example.com" @keyup.enter="create" />
-        </label>
-        <div class="field field--action">
-          <div class="field__label">&nbsp;</div>
-          <button class="btn btn--primary" :disabled="loading || !newName.trim()" @click="create">
-            + Tạo user
-          </button>
-        </div>
-      </div>
-      <div v-if="error" class="error-msg">{{ error }}</div>
-    </section>
-
-    <!-- Table -->
     <section class="card">
       <div class="table-header">
         <div class="card__title" style="margin-bottom: 0">
-          Danh sách
-          <span class="badge">{{ users.length }}</span>
+          So sánh theo phase (.jtl)
         </div>
         <div class="header-actions">
-          <input v-model="search" class="input input--search" placeholder="Tìm theo tên / email…" />
-          <button class="btn" :disabled="loading" @click="load">↻ Refresh</button>
+          <button class="btn" :disabled="runLoading" @click="loadRunSummaries">
+            ↻ Refresh summary
+          </button>
         </div>
       </div>
+
+      <div v-if="runError" class="error-msg">{{ runError }}</div>
+      <div v-if="visiblePhases.length === 0" class="empty">
+        Chưa có dữ liệu test case để vẽ biểu đồ.
+      </div>
+      <div
+        v-for="phase in visiblePhases"
+        :key="phase.phaseKey"
+        class="compare-panel"
+      >
+        <div class="compare-title">{{ phase.phaseTitle }}</div>
+        <div
+          v-for="row in phase.rows"
+          :key="row.testCaseKey ?? row.fileName"
+          class="phase-row"
+        >
+          <div class="phase-main">
+            <div class="compare-name mono">{{ row.testCaseLabel }}</div>
+            <div
+              v-if="['p1', 'p2', 'p4'].includes(phase.phaseKey) && row.hasData"
+              class="race-box"
+              :class="verdictClass(row)"
+            >
+              <div class="race-verdict">{{ verdictText(row) }}</div>
+              <div class="race-line">
+                Expected: <strong>{{ fmtPoints(row.expectedPoints) }}</strong>
+              </div>
+              <div class="race-line">
+                Actual: <strong>{{ fmtPoints(row.actualPoints) }}</strong>
+              </div>
+              <div class="race-line">
+                Missing: <strong>{{ fmtPoints(row.pointsDiff) }}</strong>
+              </div>
+              <div
+                v-if="phase.phaseKey === 'p4' && row.expectedDuplicates != null"
+                class="race-line"
+              >
+                Duplicate responses:
+                <strong>{{ row.expectedDuplicates }}</strong>
+                / Success: <strong>{{ row.successfulApplies }}</strong>
+              </div>
+              <!-- <div
+                v-if="phase.phaseKey === 'p2' && row.verdict === 'CONSISTENT'"
+                class="race-hint"
+              >
+                Lock theo customerId + guard theo transactionId đều hoạt động:
+                không mất điểm, không cộng trùng.
+              </div> -->
+            </div>
+          </div>
+          <div class="phase-metrics">
+            <div v-if="row.hasData" class="compare-metric">
+              <span class="compare-label">Avg</span>
+              <div class="compare-bar-wrap">
+                <div
+                  class="compare-bar compare-bar--avg"
+                  :style="{
+                    width: barWidth(row.avgMs, phaseMaxLatency(phase.rows)),
+                  }"
+                ></div>
+              </div>
+              <span class="compare-value">{{ row.avgMs }} ms</span>
+            </div>
+            <div v-if="row.hasData" class="compare-metric">
+              <span class="compare-label">P95</span>
+              <div class="compare-bar-wrap">
+                <div
+                  class="compare-bar compare-bar--p95"
+                  :style="{
+                    width: barWidth(row.p95Ms, phaseMaxLatency(phase.rows)),
+                  }"
+                ></div>
+              </div>
+              <span class="compare-value">{{ row.p95Ms }} ms</span>
+            </div>
+            <div v-if="row.hasData" class="compare-metric">
+              <span class="compare-label">Thr</span>
+              <div class="compare-bar-wrap">
+                <div
+                  class="compare-bar compare-bar--thr"
+                  :style="{
+                    width: barWidth(
+                      row.throughputRps,
+                      phaseMaxThroughput(phase.rows),
+                    ),
+                  }"
+                ></div>
+              </div>
+              <span class="compare-value">{{ row.throughputRps }} rps</span>
+            </div>
+            <div v-if="row.hasData" class="phase-sub">
+              Error: {{ row.errorPct }}% · Samples: {{ row.samples }}
+            </div>
+            <div v-else class="phase-missing">
+              Chưa có dữ liệu cho test case này
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="table-header">
+        <div class="card__title" style="margin-bottom: 0">
+          Điểm khách hàng
+          <span class="badge">{{ pointsTotal }}</span>
+        </div>
+        <div class="header-actions">
+          <input
+            v-model="pointsSearch"
+            class="input input--search"
+            placeholder="Tìm theo customerId…"
+            @keyup.enter="searchPoints"
+          />
+          <button class="btn" :disabled="pointsLoading" @click="searchPoints">
+            Tìm
+          </button>
+          <button class="btn" :disabled="pointsLoading" @click="loadPoints">
+            ↻ Refresh
+          </button>
+          <button
+            class="btn btn--danger"
+            :disabled="pointsLoading"
+            @click="clearAllData"
+          >
+            🗑 Clear data
+          </button>
+        </div>
+      </div>
+
+      <div v-if="pointsError" class="error-msg">{{ pointsError }}</div>
+      <div v-if="clearError" class="error-msg">{{ clearError }}</div>
+      <div v-if="clearMessage" class="ok-msg">{{ clearMessage }}</div>
 
       <div class="table-wrap">
         <table class="table">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Created</th>
-              <th>Actions</th>
+              <th>Customer ID</th>
+              <th>Primary</th>
+              <th>MySQL</th>
+              <th>Redis</th>
+              <th>In Sync</th>
+              <th>Source</th>
+              <th>Updated</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="filtered.length === 0">
-              <td colspan="5" class="empty">Không có dữ liệu</td>
+            <tr v-if="pointsRows.length === 0">
+              <td colspan="7" class="empty">Không có dữ liệu điểm</td>
             </tr>
-            <tr v-for="u in filtered" :key="u.id">
-              <td class="mono id-cell" :title="u.id">{{ u.id.slice(0, 8) }}…</td>
-
-              <!-- Inline edit mode -->
-              <td v-if="editId === u.id">
-                <input v-model="editName" class="input input--inline" @keyup.enter="saveEdit(u.id)" @keyup.esc="cancelEdit" />
+            <tr v-for="r in pointsRows" :key="r.customerId">
+              <td class="mono">{{ r.customerId }}</td>
+              <td>
+                <strong>{{ fmtPoints(r.primaryPoints) }}</strong>
               </td>
-              <td v-else>{{ u.name }}</td>
-
-              <td v-if="editId === u.id">
-                <input v-model="editEmail" class="input input--inline" @keyup.enter="saveEdit(u.id)" @keyup.esc="cancelEdit" />
+              <td>{{ fmtPoints(r.mysqlBalance) }}</td>
+              <td>{{ fmtPoints(r.redisPoints) }}</td>
+              <td :class="r.inSync ? 'ok' : 'warn'">
+                {{ r.inSync ? "Yes" : "No" }}
               </td>
-              <td v-else class="mono">{{ u.email ?? '—' }}</td>
-
-              <td class="date-cell">{{ fmtDate(u.createdAt) }}</td>
-
-              <td class="actions-cell">
-                <template v-if="editId === u.id">
-                  <button class="btn btn--save" :disabled="loading" @click="saveEdit(u.id)">✓ Lưu</button>
-                  <button class="btn btn--cancel" @click="cancelEdit">✕</button>
-                </template>
-                <template v-else>
-                  <button class="btn btn--edit" @click="startEdit(u)">Sửa</button>
-                  <button class="btn btn--delete" :disabled="loading" @click="remove(u.id)">Xóa</button>
-                </template>
+              <td class="mono">{{ r.source }}</td>
+              <td class="date-cell">
+                {{ r.updatedAt ? fmtDate(r.updatedAt) : "—" }}
               </td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="pager">
+        <div class="mono">Trang: {{ pointsPageText }}</div>
+        <div class="pager-actions">
+          <button
+            class="btn"
+            :disabled="pointsLoading || pointsOffset <= 0"
+            @click="prevPoints"
+          >
+            ← Prev
+          </button>
+          <button
+            class="btn"
+            :disabled="
+              pointsLoading || pointsOffset + pointsLimit >= pointsTotal
+            "
+            @click="nextPoints"
+          >
+            Next →
+          </button>
+        </div>
       </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 16px; }
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 
 .card {
   background: rgba(232, 236, 255, 0.03);
@@ -198,24 +482,6 @@ onMounted(load)
   gap: 8px;
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 12px;
-  align-items: end;
-}
-
-.field { display: flex; flex-direction: column; }
-.field--action { align-self: end; }
-.field__label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.55;
-  margin-bottom: 6px;
-}
-
 .input {
   padding: 9px 12px;
   border-radius: 10px;
@@ -231,11 +497,6 @@ onMounted(load)
   width: 220px;
 }
 
-.input--inline {
-  padding: 5px 8px;
-  font-size: 12px;
-}
-
 .btn {
   padding: 8px 14px;
   border-radius: 9px;
@@ -249,15 +510,17 @@ onMounted(load)
   transition: background 0.12s;
 }
 
-.btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn--primary { border-color: rgba(140, 170, 255, 0.5); background: rgba(140, 170, 255, 0.12); }
-.btn--primary:not(:disabled):hover { background: rgba(140, 170, 255, 0.2); }
-.btn--edit { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.07); }
-.btn--edit:hover { background: rgba(251, 191, 36, 0.14); }
-.btn--delete { border-color: rgba(244, 114, 182, 0.4); background: rgba(244, 114, 182, 0.06); }
-.btn--delete:not(:disabled):hover { background: rgba(244, 114, 182, 0.14); }
-.btn--save { border-color: rgba(52, 211, 153, 0.5); background: rgba(52, 211, 153, 0.1); }
-.btn--cancel { border-color: rgba(232, 236, 255, 0.15); }
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn--danger {
+  border-color: rgba(244, 114, 182, 0.4);
+  background: rgba(244, 114, 182, 0.07);
+}
+.btn--danger:not(:disabled):hover {
+  background: rgba(244, 114, 182, 0.14);
+}
 
 .table-header {
   display: flex;
@@ -268,7 +531,11 @@ onMounted(load)
   flex-wrap: wrap;
 }
 
-.header-actions { display: flex; gap: 8px; align-items: center; }
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 
 .badge {
   font-size: 11px;
@@ -279,7 +546,9 @@ onMounted(load)
   border: 1px solid rgba(232, 236, 255, 0.12);
 }
 
-.table-wrap { overflow-x: auto; }
+.table-wrap {
+  overflow-x: auto;
+}
 
 .table {
   width: 100%;
@@ -305,24 +574,208 @@ onMounted(load)
   vertical-align: middle;
 }
 
-.table tr:last-child td { border-bottom: none; }
-.table tr:hover td { background: rgba(232, 236, 255, 0.02); }
+.table tr:last-child td {
+  border-bottom: none;
+}
+.table tr:hover td {
+  background: rgba(232, 236, 255, 0.02);
+}
 
-.mono { font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
-.id-cell { opacity: 0.6; }
-.date-cell { font-size: 12px; opacity: 0.7; white-space: nowrap; }
-.actions-cell { display: flex; gap: 6px; }
+.mono {
+  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+.date-cell {
+  font-size: 12px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.pager {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pager-actions {
+  display: flex;
+  gap: 8px;
+}
+.warn {
+  color: #fbbf24;
+  font-weight: 600;
+}
+.ok {
+  color: #34d399;
+  font-weight: 600;
+}
+.run-card {
+  background: rgba(232, 236, 255, 0.04);
+  border: 1px solid rgba(232, 236, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.run-label {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+.run-value {
+  font-size: 14px;
+  font-weight: 700;
+}
+.compare-panel {
+  margin-top: 14px;
+  border-top: 1px solid rgba(232, 236, 255, 0.08);
+  padding-top: 12px;
+}
+.compare-title {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+  margin-bottom: 8px;
+}
+.phase-row {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(232, 236, 255, 0.06);
+}
+.phase-row:last-child {
+  border-bottom: none;
+}
+.phase-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.phase-sub {
+  font-size: 12px;
+  opacity: 0.72;
+}
+.phase-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(232, 236, 255, 0.14);
+  background: rgba(232, 236, 255, 0.06);
+  font-size: 11px;
+  font-weight: 600;
+}
+.phase-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.phase-missing {
+  font-size: 12px;
+  color: #fbbf24;
+}
+.race-box {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(232, 236, 255, 0.1);
+  background: rgba(232, 236, 255, 0.03);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.race-box--ok {
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(52, 211, 153, 0.08);
+}
+.race-box--bad {
+  border-color: rgba(244, 114, 182, 0.45);
+  background: rgba(244, 114, 182, 0.1);
+}
+.race-box--warn {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.1);
+}
+.race-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.85;
+  font-style: italic;
+}
+.race-verdict {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.race-line {
+  opacity: 0.85;
+}
+.compare-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compare-metric {
+  display: grid;
+  grid-template-columns: 26px 1fr 84px;
+  align-items: center;
+  gap: 8px;
+}
+.compare-label {
+  font-size: 11px;
+  opacity: 0.65;
+}
+.compare-bar-wrap {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(232, 236, 255, 0.08);
+  overflow: hidden;
+}
+.compare-bar {
+  height: 100%;
+  border-radius: 999px;
+}
+.compare-bar--avg {
+  background: linear-gradient(90deg, #60a5fa, #3b82f6);
+}
+.compare-bar--p95 {
+  background: linear-gradient(90deg, #f59e0b, #d97706);
+}
+.compare-bar--thr {
+  background: linear-gradient(90deg, #34d399, #10b981);
+}
+.compare-value {
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+}
 
-.empty { text-align: center; opacity: 0.4; padding: 24px; }
+.empty {
+  text-align: center;
+  opacity: 0.4;
+  padding: 24px;
+}
 
 .error-msg {
   margin-top: 10px;
   color: #f87171;
   font-size: 13px;
 }
+.ok-msg {
+  margin-top: 10px;
+  color: #34d399;
+  font-size: 13px;
+}
 
 @media (max-width: 768px) {
-  .form-row { grid-template-columns: 1fr; }
-  .input--search { width: 100%; }
+  .input--search {
+    width: 100%;
+  }
+  .phase-row {
+    grid-template-columns: 1fr;
+  }
+  .compare-metric {
+    grid-template-columns: 26px 1fr 70px;
+  }
 }
 </style>

@@ -10,12 +10,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import turbo.pos.boost.dto.RewardResponse;
 import turbo.pos.boost.dto.TransactionRequest;
 import turbo.pos.boost.service.LockingRewardService;
 import turbo.pos.boost.service.NoLockRewardService;
 import turbo.pos.boost.service.RewardBalanceQueryService;
+import turbo.pos.boost.service.ThreadModelBenchmarkService;
 
 @RestController
 @RequestMapping("/api/rewards")
@@ -25,6 +27,7 @@ public class RewardController {
 	private final NoLockRewardService noLockRewardService;
 	private final LockingRewardService lockingRewardService;
 	private final RewardBalanceQueryService rewardBalanceQueryService;
+	private final ThreadModelBenchmarkService threadModelBenchmarkService;
 
 	@PostMapping("/single/no-lock")
 	@Async("singleExecutor")
@@ -62,13 +65,54 @@ public class RewardController {
 		return CompletableFuture.completedFuture(lockingRewardService.processReward(request));
 	}
 
+	@PostMapping("/bench/single/io")
+	@Async("singleExecutor")
+	public CompletableFuture<RewardResponse> benchmarkSingleIo(@RequestBody(required = false) TransactionRequest request) {
+		return CompletableFuture.completedFuture(threadModelBenchmarkService.processIoBoundTask(request));
+	}
+
+	@PostMapping("/bench/platform/io")
+	@Async("platformExecutor")
+	public CompletableFuture<RewardResponse> benchmarkPlatformIo(@RequestBody(required = false) TransactionRequest request) {
+		return CompletableFuture.completedFuture(threadModelBenchmarkService.processIoBoundTask(request));
+	}
+
+	@PostMapping("/bench/virtual/io")
+	@Async("virtualExecutor")
+	public CompletableFuture<RewardResponse> benchmarkVirtualIo(@RequestBody(required = false) TransactionRequest request) {
+		return CompletableFuture.completedFuture(threadModelBenchmarkService.processIoBoundTask(request));
+	}
+
 	@GetMapping("/points/{customerId}")
 	public Map<String, Object> getPoints(@PathVariable String customerId) {
 		return rewardBalanceQueryService.getPrimaryPoints(customerId);
 	}
 
+	@GetMapping("/points")
+	public Map<String, Object> listPoints(
+			@RequestParam(defaultValue = "50") int limit,
+			@RequestParam(defaultValue = "0") int offset,
+			@RequestParam(required = false) String keyword) {
+		return rewardBalanceQueryService.listCustomerPoints(limit, offset, keyword);
+	}
+
+	@PostMapping("/points/clear")
+	public Map<String, Object> clearAllPoints() {
+		return rewardBalanceQueryService.clearAllPointsData();
+	}
+
+	@PostMapping("/redis/rehydrate")
+	public Map<String, Object> rehydrateRedis() {
+		return rewardBalanceQueryService.rehydrateRedisFromMysql();
+	}
+
 	@GetMapping("/balance/compare/{customerId}")
 	public Map<String, Object> compareBalances(@PathVariable String customerId) {
 		return rewardBalanceQueryService.compareBalances(customerId);
+	}
+
+	@GetMapping("/consistency/global")
+	public Map<String, Object> globalConsistency() {
+		return rewardBalanceQueryService.globalConsistencyReport();
 	}
 }

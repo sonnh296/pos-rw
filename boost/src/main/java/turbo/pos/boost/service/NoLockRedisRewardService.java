@@ -10,11 +10,7 @@ import org.springframework.stereotype.Service;
 import turbo.pos.boost.dto.RewardResponse;
 import turbo.pos.boost.dto.TransactionRequest;
 
-/**
- * Không lock (race demo).
- * - Chỉ cộng điểm tạm trên Redis (không ghi MySQL, không outbox).
- * - Dùng để chứng minh lost update khi concurrent cao.
- */
+/** No-lock Redis path: demo race / lost update (không MySQL, không outbox). */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -22,6 +18,7 @@ import turbo.pos.boost.dto.TransactionRequest;
 public class NoLockRedisRewardService {
 
 	private static final String HASH_KEY = "customer:points";
+	private static final String EXPECTED_PREFIX = "expected:";
 
 	private final StringRedisTemplate stringRedisTemplate;
 
@@ -29,13 +26,18 @@ public class NoLockRedisRewardService {
 		long start = System.currentTimeMillis();
 		try {
 			String customerId = request.getCustomerId();
+			long pointsToAdd = Math.round(request.getAmount() * 10);
+
+			// Mỗi SUCCESS bump expected (độc lập RMW race).
+			stringRedisTemplate.opsForValue().increment(EXPECTED_PREFIX + customerId, pointsToAdd);
+
 			TimeUnit.MILLISECONDS.sleep(50);
 
-			long pointsToAdd = Math.round(request.getAmount() * 10);
-			Long newPoints = stringRedisTemplate.opsForHash().increment(HASH_KEY, customerId, pointsToAdd);
-			if (newPoints == null) {
-				newPoints = 0L;
-			}
+			// Intentionally non-atomic read-modify-write to demonstrate race conditions in no-lock mode.
+			Object raw = stringRedisTemplate.opsForHash().get(HASH_KEY, customerId);
+			long current = raw == null ? 0L : Long.parseLong(raw.toString());
+			long newPoints = current + pointsToAdd;
+			stringRedisTemplate.opsForHash().put(HASH_KEY, customerId, Long.toString(newPoints));
 
 			return RewardResponse.builder()
 					.customerId(customerId)
