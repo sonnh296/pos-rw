@@ -14,19 +14,19 @@
       <h3>Trạng Thái Kiểm Thử</h3>
       
       <div v-if="status.phase1Running" class="progress-box">
-        <label>Đang chạy Giai Đoạn 1 ({{ Math.round((status.phase1Progress / 600) * 100) }}%)</label>
+        <label>Đang chạy Giai Đoạn 1 ({{ Math.round((status.phase1Progress / 30) * 100) }}%)</label>
         <div class="progress-bar">
-          <div class="fill" :style="{ width: (status.phase1Progress / 600 * 100) + '%' }"></div>
+          <div class="fill" :style="{ width: (status.phase1Progress / 30 * 100) + '%' }"></div>
         </div>
-        <small>{{ status.phase1Progress }} / 600 vòng lặp</small>
+        <small>{{ status.phase1Progress }} / 30 vòng lặp</small>
       </div>
 
       <div v-if="status.phase2Running" class="progress-box">
-        <label>Đang chạy Giai Đoạn 2 ({{ Math.round((status.phase2Progress / 200) * 100) }}%)</label>
+        <label>Đang chạy Giai Đoạn 2 ({{ Math.round((status.phase2Progress / 10) * 100) }}%)</label>
         <div class="progress-bar">
-          <div class="fill" :style="{ width: (status.phase2Progress / 200 * 100) + '%' }"></div>
+          <div class="fill" :style="{ width: (status.phase2Progress / 10 * 100) + '%' }"></div>
         </div>
-        <small>{{ status.phase2Progress }} / 200 vòng lặp</small>
+        <small>{{ status.phase2Progress }} / 10 vòng lặp</small>
       </div>
     </div>
 
@@ -35,7 +35,7 @@
       <div class="test-card">
         <div class="card-header">
           <h2>Giai Đoạn 1: Độ Chính Xác (Khóa vs Không Khóa)</h2>
-          <p>Lặp lại 100 lần cho mỗi mô hình Thread. Mỗi vòng lặp gửi đồng thời 5 giao dịch với số tiền ngẫu nhiên để kiểm chứng độ chính xác khi đối soát.</p>
+          <p>Lặp lại 5 lần cho mỗi mô hình Thread. Mỗi vòng lặp gửi đồng thời 5 giao dịch với số tiền ngẫu nhiên để kiểm chứng độ chính xác khi đối soát.</p>
         </div>
         
         <div class="controls">
@@ -79,7 +79,7 @@
       <div class="test-card">
         <div class="card-header">
           <h2>Giai Đoạn 2: Hiệu Năng (Platform vs Virtual Thread)</h2>
-          <p>Lặp lại 100 lần. Mỗi vòng lặp ném 5000 request I/O đồng thời để so sánh thời gian thực thi, Throughput (RPS) và P95 Latency.</p>
+          <p>Lặp lại 5 lần. Mỗi vòng lặp ném 5000 request I/O đồng thời để so sánh thời gian thực thi, Throughput (RPS) và P95 Latency.</p>
         </div>
         
         <div class="controls">
@@ -187,7 +187,7 @@ async function clearResults() {
 
 async function runPhase1() {
   try {
-    await fetch(`/api/custom-tests/run-phase1?iterations=100`, { method: 'POST' });
+    await fetch(`/api/custom-tests/run-phase1?iterations=5`, { method: 'POST' });
     fetchStatus();
   } catch (err) {
     console.error(err);
@@ -196,7 +196,7 @@ async function runPhase1() {
 
 async function runPhase2() {
   try {
-    await fetch(`/api/custom-tests/run-phase2?iterations=100&totalRequestsPerIter=5000`, { method: 'POST' });
+    await fetch(`/api/custom-tests/run-phase2?iterations=5&totalRequestsPerIter=5000`, { method: 'POST' });
     fetchStatus();
   } catch (err) {
     console.error(err);

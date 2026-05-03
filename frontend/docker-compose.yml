@@ -1,0 +1,14 @@
+services:
+  frontend:
+    build: .
+    image: turbo-pos-frontend:latest
+    ports:
+      - "80:80"
+    restart: always
+    networks:
+      - pos-network
+
+networks:
+  pos-network:
+    external: true
+    name: boost_default
