@@ -72,11 +72,7 @@ async function clearAllData() {
     return;
   }
 
-  const data = res.data as Record<string, unknown>;
-  const flushed = data.redisFlushed === true;
-  // clearMessage.value = flushed
-  //   ? "Đã xóa MySQL + FLUSHDB Redis. Hệ thống đã sạch."
-  //   : "Đã xóa MySQL + Redis keys (FLUSHDB thất bại, có thể còn key tồn dư).";
+  // clearMessage.value = "Đã xóa toàn bộ dữ liệu."
   pointsOffset.value = 0;
   await loadPoints();
 }
@@ -119,10 +115,6 @@ const pointsPageText = computed(() => {
   return `${from}-${to}/${pointsTotal.value}`;
 });
 
-function barWidth(value: number | null | undefined, maxValue: number) {
-  const v = Number(value ?? 0);
-  return `${Math.max(0, Math.min(100, (v / maxValue) * 100))}%`;
-}
 
 onMounted(async () => {
   await loadPoints();
