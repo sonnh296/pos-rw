@@ -84,10 +84,6 @@ public class MysqlLockingRewardService {
 					.threadName(Thread.currentThread().toString())
 					.processingTimeMs(System.currentTimeMillis() - start)
 					.build();
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			log.error("MysqlLockingRewardService interrupted", e);
-			return error(customerId, start);
 		} catch (Exception e) {
 			log.error("MysqlLockingRewardService failed", e);
 			return error(customerId, start);

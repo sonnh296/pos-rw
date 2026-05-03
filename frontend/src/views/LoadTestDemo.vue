@@ -1,130 +1,139 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { apiFetch, jsonBody } from '../lib/api'
-import { runLoad } from '../lib/loadRunner'
-import { summarize, type SummaryStats } from '../lib/stats'
+import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { apiFetch, jsonBody } from "../lib/api";
+import { runLoad } from "../lib/loadRunner";
+import { summarize, type SummaryStats } from "../lib/stats";
 import {
   loadSavedRuns,
   persistSavedRuns,
   clearSavedRuns,
   type SavedLoadRun,
-} from '../lib/loadTestStorage'
-import { Chart, registerables } from 'chart.js'
+} from "../lib/loadTestStorage";
+import { Chart, registerables } from "chart.js";
 
-Chart.register(...registerables)
+Chart.register(...registerables);
 
-const TIMEOUT_MS = 15_000
+const TIMEOUT_MS = 15_000;
 
 type Target =
-  | 'rewards_single_lock'
-  | 'rewards_single_no_lock'
-  | 'rewards_platform_lock'
-  | 'rewards_platform_no_lock'
-  | 'rewards_virtual_lock'
-  | 'rewards_virtual_no_lock'
-  | 'users_list'
-  | 'health'
+  | "rewards_single_lock"
+  | "rewards_single_no_lock"
+  | "rewards_platform_lock"
+  | "rewards_platform_no_lock"
+  | "rewards_virtual_lock"
+  | "rewards_virtual_no_lock"
+  | "users_list"
+  | "health";
 
 // 6 reward modes: single / platform / virtual  ×  lock / no-lock
 const REWARD_TARGETS: Target[] = [
-  'rewards_single_lock',
-  'rewards_single_no_lock',
-  'rewards_platform_lock',
-  'rewards_platform_no_lock',
-  'rewards_virtual_lock',
-  'rewards_virtual_no_lock',
-]
+  "rewards_single_lock",
+  "rewards_single_no_lock",
+  "rewards_platform_lock",
+  "rewards_platform_no_lock",
+  "rewards_virtual_lock",
+  "rewards_virtual_no_lock",
+];
 
 const TARGET_LABELS: Record<string, string> = {
-  rewards_single_lock: 'Single / Lock',
-  rewards_single_no_lock: 'Single / No-lock',
-  rewards_platform_lock: 'Platform / Lock',
-  rewards_platform_no_lock: 'Platform / No-lock',
-  rewards_virtual_lock: 'Virtual / Lock',
-  rewards_virtual_no_lock: 'Virtual / No-lock',
-  users_list: 'Users list',
-  health: 'Health',
-}
+  rewards_single_lock: "Single / Lock",
+  rewards_single_no_lock: "Single / No-lock",
+  rewards_platform_lock: "Platform / Lock",
+  rewards_platform_no_lock: "Platform / No-lock",
+  rewards_virtual_lock: "Virtual / Lock",
+  rewards_virtual_no_lock: "Virtual / No-lock",
+  users_list: "Users list",
+  health: "Health",
+};
 
 // 6 colors: single(red/orange) · platform(blue/sky) · virtual(green/teal)
 const CHART_COLORS = [
-  'rgba(244, 63,  94,  0.85)',  // single lock
-  'rgba(251, 146, 60,  0.85)',  // single no-lock
-  'rgba(96,  165, 250, 0.85)',  // platform lock
-  'rgba(147, 197, 253, 0.85)',  // platform no-lock
-  'rgba(52,  211, 153, 0.85)',  // virtual lock
-  'rgba(110, 231, 183, 0.85)',  // virtual no-lock
-]
+  "rgba(244, 63,  94,  0.85)", // single lock
+  "rgba(251, 146, 60,  0.85)", // single no-lock
+  "rgba(96,  165, 250, 0.85)", // platform lock
+  "rgba(147, 197, 253, 0.85)", // platform no-lock
+  "rgba(52,  211, 153, 0.85)", // virtual lock
+  "rgba(110, 231, 183, 0.85)", // virtual no-lock
+];
 
 const ENDPOINT_MAP: Record<Target, string> = {
-  rewards_single_lock: 'POST /api/rewards/single/lock',
-  rewards_single_no_lock: 'POST /api/rewards/single/no-lock',
-  rewards_platform_lock: 'POST /api/rewards/platform/lock',
-  rewards_platform_no_lock: 'POST /api/rewards/platform/no-lock',
-  rewards_virtual_lock: 'POST /api/rewards/virtual/lock',
-  rewards_virtual_no_lock: 'POST /api/rewards/virtual/no-lock',
-  users_list: 'GET /api/users',
-  health: 'GET /actuator/health',
-}
+  rewards_single_lock: "POST /api/rewards/single/lock",
+  rewards_single_no_lock: "POST /api/rewards/single/no-lock",
+  rewards_platform_lock: "POST /api/rewards/platform/lock",
+  rewards_platform_no_lock: "POST /api/rewards/platform/no-lock",
+  rewards_virtual_lock: "POST /api/rewards/virtual/lock",
+  rewards_virtual_no_lock: "POST /api/rewards/virtual/no-lock",
+  users_list: "GET /api/users",
+  health: "GET /actuator/health",
+};
 
 // ── State ─────────────────────────────────────────────────
-const target = ref<Target>('rewards_platform_lock')
-const totalRequests = ref(500)
-const concurrency = ref(50)
+const target = ref<Target>("rewards_platform_lock");
+const totalRequests = ref(500);
+const concurrency = ref(50);
 
-const userCount = ref(50)
-const amount = ref(100)
+const userCount = ref(50);
+const amount = ref(100);
 
-const running = ref(false)
-const progress = ref({ done: 0, ok: 0, fail: 0 })
-const results = ref<{ stats: SummaryStats; sampleErrors: string[]; target: Target; rps: number } | null>(null)
-const savedRuns = ref<SavedLoadRun[]>(loadSavedRuns())
+const running = ref(false);
+const progress = ref({ done: 0, ok: 0, fail: 0 });
+const results = ref<{
+  stats: SummaryStats;
+  sampleErrors: string[];
+  target: Target;
+  rps: number;
+} | null>(null);
+const savedRuns = ref<SavedLoadRun[]>(loadSavedRuns());
 
-const runningCompare = ref(false)
-const compareProgress = ref('')
-const compareResults = ref<Array<{ target: Target; stats: SummaryStats; rps: number }>>([])
+const runningCompare = ref(false);
+const compareProgress = ref("");
+const compareResults = ref<
+  Array<{ target: Target; stats: SummaryStats; rps: number }>
+>([]);
 
 // ── Chart canvas refs ──────────────────────────────────────
-const latencyChartCanvas = ref<HTMLCanvasElement | null>(null)
-const compareChartCanvas = ref<HTMLCanvasElement | null>(null)
-const historyChartCanvas = ref<HTMLCanvasElement | null>(null)
+const latencyChartCanvas = ref<HTMLCanvasElement | null>(null);
+const compareChartCanvas = ref<HTMLCanvasElement | null>(null);
+const historyChartCanvas = ref<HTMLCanvasElement | null>(null);
 
-let latencyChartInst: Chart | null = null
-let compareChartInst: Chart | null = null
-let historyChartInst: Chart | null = null
+let latencyChartInst: Chart | null = null;
+let compareChartInst: Chart | null = null;
+let historyChartInst: Chart | null = null;
 
 // ── Computed ───────────────────────────────────────────────
-const endpointLabel = computed(() => ENDPOINT_MAP[target.value])
-const isRewards = computed(() => target.value.startsWith('rewards_'))
+const endpointLabel = computed(() => ENDPOINT_MAP[target.value]);
+const isRewards = computed(() => target.value.startsWith("rewards_"));
 
 // ── Helpers ────────────────────────────────────────────────
 function getUserId(i: number): string {
-  const n = Math.max(1, userCount.value)
-  return `user-${String((i % n) + 1).padStart(4, '0')}`
+  const n = Math.max(1, userCount.value);
+  return `user-${String((i % n) + 1).padStart(4, "0")}`;
 }
 
 function mkTxnId(i: number): string {
-  return `txn-${Date.now()}-${i}-${Math.random().toString(16).slice(2, 8)}`
+  return `txn-${Date.now()}-${i}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
 function fmtTime(ts: number): string {
-  const d = new Date(ts)
+  const d = new Date(ts);
   return [d.getHours(), d.getMinutes(), d.getSeconds()]
-    .map((v) => String(v).padStart(2, '0'))
-    .join(':')
+    .map((v) => String(v).padStart(2, "0"))
+    .join(":");
 }
 
-function statCards(s: SummaryStats): { label: string; value: string; ms: boolean }[] {
+function statCards(
+  s: SummaryStats,
+): { label: string; value: string; ms: boolean }[] {
   return [
-    { label: 'Total', value: String(s.total), ms: false },
-    { label: 'OK', value: String(s.ok), ms: false },
-    { label: 'Fail', value: String(s.fail), ms: false },
-    { label: 'P50', value: String(s.p50Ms), ms: true },
-    { label: 'P95', value: String(s.p95Ms), ms: true },
-    { label: 'P99', value: String(s.p99Ms), ms: true },
-    { label: 'Max', value: String(s.maxMs), ms: true },
-    { label: 'Avg', value: String(Math.round(s.avgMs)), ms: true },
-  ]
+    { label: "Total", value: String(s.total), ms: false },
+    { label: "OK", value: String(s.ok), ms: false },
+    { label: "Fail", value: String(s.fail), ms: false },
+    { label: "P50", value: String(s.p50Ms), ms: true },
+    { label: "P95", value: String(s.p95Ms), ms: true },
+    { label: "P99", value: String(s.p99Ms), ms: true },
+    { label: "Max", value: String(s.maxMs), ms: true },
+    { label: "Avg", value: String(Math.round(s.avgMs)), ms: true },
+  ];
 }
 
 // ── Core request ───────────────────────────────────────────
@@ -132,58 +141,77 @@ async function makeRequest(
   t: Target,
   timeout: number,
   i: number,
-): Promise<{ ok: true; status?: number } | { ok: false; status?: number; error: string }> {
-  if (t === 'users_list') {
-    const res = await apiFetch<unknown>('/api/users', { timeoutMs: timeout })
-    return res.ok ? { ok: true } : { ok: false, error: res.error.message, status: res.error.status }
+): Promise<
+  { ok: true; status?: number } | { ok: false; status?: number; error: string }
+> {
+  if (t === "users_list") {
+    const res = await apiFetch<unknown>("/api/users", { timeoutMs: timeout });
+    return res.ok
+      ? { ok: true }
+      : { ok: false, error: res.error.message, status: res.error.status };
   }
-  if (t === 'health') {
-    const res = await apiFetch<unknown>('/actuator/health', { timeoutMs: timeout })
-    return res.ok ? { ok: true } : { ok: false, error: res.error.message, status: res.error.status }
+  if (t === "health") {
+    const res = await apiFetch<unknown>("/actuator/health", {
+      timeoutMs: timeout,
+    });
+    return res.ok
+      ? { ok: true }
+      : { ok: false, error: res.error.message, status: res.error.status };
   }
   const rewardPaths: Record<string, string> = {
-    rewards_single_lock: '/api/rewards/single/lock',
-    rewards_single_no_lock: '/api/rewards/single/no-lock',
-    rewards_platform_lock: '/api/rewards/platform/lock',
-    rewards_platform_no_lock: '/api/rewards/platform/no-lock',
-    rewards_virtual_lock: '/api/rewards/virtual/lock',
-    rewards_virtual_no_lock: '/api/rewards/virtual/no-lock',
-  }
+    rewards_single_lock: "/api/rewards/single/lock",
+    rewards_single_no_lock: "/api/rewards/single/no-lock",
+    rewards_platform_lock: "/api/rewards/platform/lock",
+    rewards_platform_no_lock: "/api/rewards/platform/no-lock",
+    rewards_virtual_lock: "/api/rewards/virtual/lock",
+    rewards_virtual_no_lock: "/api/rewards/virtual/no-lock",
+  };
   const body = {
     customerId: getUserId(i),
     transactionId: mkTxnId(i),
     amount: Number(amount.value),
-  }
+  };
   const res = await apiFetch<unknown>(rewardPaths[t], {
-    method: 'POST',
+    method: "POST",
     ...jsonBody(body),
     timeoutMs: timeout,
-  })
-  return res.ok ? { ok: true } : { ok: false, error: res.error.message, status: res.error.status }
+  });
+  return res.ok
+    ? { ok: true }
+    : { ok: false, error: res.error.message, status: res.error.status };
 }
 
 // ── Load execution ─────────────────────────────────────────
 async function execLoad(
   t: Target,
   onProg?: (done: number, ok: number, fail: number) => void,
-): Promise<{ stats: SummaryStats; rps: number; wallMs: number; errs: string[] }> {
-  const errs: string[] = []
-  const wallStart = performance.now()
+): Promise<{
+  stats: SummaryStats;
+  rps: number;
+  wallMs: number;
+  errs: string[];
+}> {
+  const errs: string[] = [];
+  const wallStart = performance.now();
   const items = await runLoad(
     async (timeout, i) => {
-      const r = await makeRequest(t, timeout ?? TIMEOUT_MS, i ?? 0)
-      if (!r.ok && errs.length < 12) errs.push(`${r.status ?? 0} ${r.error}`)
-      return r
+      const r = await makeRequest(t, timeout ?? TIMEOUT_MS, i ?? 0);
+      if (!r.ok && errs.length < 12) errs.push(`${r.status ?? 0} ${r.error}`);
+      return r;
     },
-    { totalRequests: totalRequests.value, concurrency: concurrency.value, timeoutMs: TIMEOUT_MS },
+    {
+      totalRequests: totalRequests.value,
+      concurrency: concurrency.value,
+      timeoutMs: TIMEOUT_MS,
+    },
     onProg,
-  )
-  const wallMs = Math.round(performance.now() - wallStart)
-  const ms = items.map((x) => x.elapsedMs)
-  const okCount = items.filter((x) => x.ok).length
-  const stats = summarize(ms, okCount, items.length - okCount)
-  const rps = wallMs > 0 ? Math.round((okCount / wallMs) * 1000) : 0
-  return { stats, rps, wallMs, errs }
+  );
+  const wallMs = Math.round(performance.now() - wallStart);
+  const ms = items.map((x) => x.elapsedMs);
+  const okCount = items.filter((x) => x.ok).length;
+  const stats = summarize(ms, okCount, items.length - okCount);
+  const rps = wallMs > 0 ? Math.round((okCount / wallMs) * 1000) : 0;
+  return { stats, rps, wallMs, errs };
 }
 
 function saveRun(
@@ -204,67 +232,70 @@ function saveRun(
     wallMs,
     rps,
     sampleErrors: errs,
-  }
-  savedRuns.value = [run, ...savedRuns.value].slice(0, 80)
-  persistSavedRuns(savedRuns.value)
+  };
+  savedRuns.value = [run, ...savedRuns.value].slice(0, 80);
+  persistSavedRuns(savedRuns.value);
 }
 
 // ── Actions ────────────────────────────────────────────────
 async function run() {
-  if (running.value || runningCompare.value) return
-  running.value = true
-  results.value = null
-  progress.value = { done: 0, ok: 0, fail: 0 }
+  if (running.value || runningCompare.value) return;
+  running.value = true;
+  results.value = null;
+  progress.value = { done: 0, ok: 0, fail: 0 };
 
-  const { stats, rps, wallMs, errs } = await execLoad(target.value, (done, ok, fail) => {
-    progress.value = { done, ok, fail }
-  })
+  const { stats, rps, wallMs, errs } = await execLoad(
+    target.value,
+    (done, ok, fail) => {
+      progress.value = { done, ok, fail };
+    },
+  );
 
-  results.value = { stats, sampleErrors: errs, target: target.value, rps }
-  saveRun(target.value, stats, rps, wallMs, errs)
-  running.value = false
+  results.value = { stats, sampleErrors: errs, target: target.value, rps };
+  saveRun(target.value, stats, rps, wallMs, errs);
+  running.value = false;
 
-  await nextTick()
-  renderLatencyChart(stats, target.value)
-  renderHistoryChart()
+  await nextTick();
+  renderLatencyChart(stats, target.value);
+  renderHistoryChart();
 }
 
 async function runCompare(targets: Target[]) {
-  if (running.value || runningCompare.value) return
-  runningCompare.value = true
-  compareResults.value = []
+  if (running.value || runningCompare.value) return;
+  runningCompare.value = true;
+  compareResults.value = [];
 
   for (const t of targets) {
-    compareProgress.value = `Running ${TARGET_LABELS[t] ?? t}…`
-    const { stats, rps, wallMs, errs } = await execLoad(t)
-    compareResults.value = [...compareResults.value, { target: t, stats, rps }]
-    saveRun(t, stats, rps, wallMs, errs)
+    compareProgress.value = `Running ${TARGET_LABELS[t] ?? t}…`;
+    const { stats, rps, wallMs, errs } = await execLoad(t);
+    compareResults.value = [...compareResults.value, { target: t, stats, rps }];
+    saveRun(t, stats, rps, wallMs, errs);
   }
 
-  compareProgress.value = 'Xong!'
-  runningCompare.value = false
+  compareProgress.value = "Xong!";
+  runningCompare.value = false;
 
-  await nextTick()
-  renderCompareChart()
-  renderHistoryChart()
+  await nextTick();
+  renderCompareChart();
+  renderHistoryChart();
 }
 
 function clearHistory() {
-  clearSavedRuns()
-  savedRuns.value = []
-  historyChartInst?.destroy()
-  historyChartInst = null
+  clearSavedRuns();
+  savedRuns.value = [];
+  historyChartInst?.destroy();
+  historyChartInst = null;
 }
 
 // ── Chart rendering ────────────────────────────────────────
 function renderLatencyChart(stats: SummaryStats, t: Target): void {
-  if (!latencyChartCanvas.value) return
-  latencyChartInst?.destroy()
-  const label = TARGET_LABELS[t] ?? t
+  if (!latencyChartCanvas.value) return;
+  latencyChartInst?.destroy();
+  const label = TARGET_LABELS[t] ?? t;
   latencyChartInst = new Chart(latencyChartCanvas.value, {
-    type: 'bar',
+    type: "bar",
     data: {
-      labels: ['Min', 'P50', 'P95', 'P99', 'Max', 'Avg'],
+      labels: ["Min", "P50", "P95", "P99", "Max", "Avg"],
       datasets: [
         {
           label,
@@ -277,12 +308,12 @@ function renderLatencyChart(stats: SummaryStats, t: Target): void {
             Math.round(stats.avgMs),
           ],
           backgroundColor: [
-            'rgba(96, 165, 250, 0.75)',
-            'rgba(52, 211, 153, 0.75)',
-            'rgba(251, 191, 36, 0.75)',
-            'rgba(249, 115, 22, 0.75)',
-            'rgba(244, 63, 94, 0.75)',
-            'rgba(167, 139, 250, 0.75)',
+            "rgba(96, 165, 250, 0.75)",
+            "rgba(52, 211, 153, 0.75)",
+            "rgba(251, 191, 36, 0.75)",
+            "rgba(249, 115, 22, 0.75)",
+            "rgba(244, 63, 94, 0.75)",
+            "rgba(167, 139, 250, 0.75)",
           ],
           borderRadius: 6,
         },
@@ -298,22 +329,25 @@ function renderLatencyChart(stats: SummaryStats, t: Target): void {
       scales: {
         y: {
           beginAtZero: true,
-          grid: { color: 'rgba(232,236,255,0.06)' },
-          ticks: { color: 'rgba(232,236,255,0.6)', callback: (v) => `${v}ms` },
+          grid: { color: "rgba(232,236,255,0.06)" },
+          ticks: { color: "rgba(232,236,255,0.6)", callback: (v) => `${v}ms` },
         },
-        x: { ticks: { color: 'rgba(232,236,255,0.6)' }, grid: { display: false } },
+        x: {
+          ticks: { color: "rgba(232,236,255,0.6)" },
+          grid: { display: false },
+        },
       },
     },
-  })
+  });
 }
 
 function renderCompareChart(): void {
-  if (!compareChartCanvas.value || compareResults.value.length === 0) return
-  compareChartInst?.destroy()
+  if (!compareChartCanvas.value || compareResults.value.length === 0) return;
+  compareChartInst?.destroy();
   compareChartInst = new Chart(compareChartCanvas.value, {
-    type: 'bar',
+    type: "bar",
     data: {
-      labels: ['P50', 'P95', 'P99', 'Max', 'Avg'],
+      labels: ["P50", "P95", "P99", "Max", "Avg"],
       datasets: compareResults.value.map((r, idx) => ({
         label: TARGET_LABELS[r.target] ?? r.target,
         data: [
@@ -331,47 +365,55 @@ function renderCompareChart(): void {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'top', labels: { color: 'rgba(232,236,255,0.75)', padding: 16 } },
+        legend: {
+          position: "top",
+          labels: { color: "rgba(232,236,255,0.75)", padding: 16 },
+        },
         tooltip: {
-          callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} ms` },
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} ms`,
+          },
         },
       },
       scales: {
         y: {
           beginAtZero: true,
-          grid: { color: 'rgba(232,236,255,0.06)' },
-          ticks: { color: 'rgba(232,236,255,0.6)', callback: (v) => `${v}ms` },
+          grid: { color: "rgba(232,236,255,0.06)" },
+          ticks: { color: "rgba(232,236,255,0.6)", callback: (v) => `${v}ms` },
         },
-        x: { ticks: { color: 'rgba(232,236,255,0.6)' }, grid: { display: false } },
+        x: {
+          ticks: { color: "rgba(232,236,255,0.6)" },
+          grid: { display: false },
+        },
       },
     },
-  })
+  });
 }
 
 function renderHistoryChart(): void {
-  if (!historyChartCanvas.value || savedRuns.value.length < 2) return
-  historyChartInst?.destroy()
-  const recent = [...savedRuns.value].slice(0, 20).reverse()
+  if (!historyChartCanvas.value || savedRuns.value.length < 2) return;
+  historyChartInst?.destroy();
+  const recent = [...savedRuns.value].slice(0, 20).reverse();
   historyChartInst = new Chart(historyChartCanvas.value, {
-    type: 'line',
+    type: "line",
     data: {
       labels: recent.map((r) => fmtTime(r.at)),
       datasets: [
         {
-          label: 'P95 (ms)',
+          label: "P95 (ms)",
           data: recent.map((r) => r.stats.p95Ms),
-          borderColor: '#f472b6',
-          backgroundColor: 'rgba(244, 114, 182, 0.08)',
+          borderColor: "#f472b6",
+          backgroundColor: "rgba(244, 114, 182, 0.08)",
           tension: 0.35,
           fill: true,
           pointRadius: 4,
           pointHoverRadius: 6,
         },
         {
-          label: 'P50 (ms)',
+          label: "P50 (ms)",
           data: recent.map((r) => r.stats.p50Ms),
-          borderColor: '#34d399',
-          backgroundColor: 'rgba(52, 211, 153, 0.08)',
+          borderColor: "#34d399",
+          backgroundColor: "rgba(52, 211, 153, 0.08)",
           tension: 0.35,
           fill: true,
           pointRadius: 4,
@@ -383,13 +425,16 @@ function renderHistoryChart(): void {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'top', labels: { color: 'rgba(232,236,255,0.75)', padding: 16 } },
+        legend: {
+          position: "top",
+          labels: { color: "rgba(232,236,255,0.75)", padding: 16 },
+        },
         tooltip: {
           callbacks: {
             label: (ctx) => {
-              const run = recent[ctx.dataIndex]
-              const tgt = run ? (TARGET_LABELS[run.target] ?? run.target) : ''
-              return `${ctx.dataset.label}: ${ctx.parsed.y} ms  (${tgt})`
+              const run = recent[ctx.dataIndex];
+              const tgt = run ? (TARGET_LABELS[run.target] ?? run.target) : "";
+              return `${ctx.dataset.label}: ${ctx.parsed.y} ms  (${tgt})`;
             },
           },
         },
@@ -397,28 +442,31 @@ function renderHistoryChart(): void {
       scales: {
         y: {
           beginAtZero: true,
-          grid: { color: 'rgba(232,236,255,0.06)' },
-          ticks: { color: 'rgba(232,236,255,0.6)', callback: (v) => `${v}ms` },
+          grid: { color: "rgba(232,236,255,0.06)" },
+          ticks: { color: "rgba(232,236,255,0.6)", callback: (v) => `${v}ms` },
         },
-        x: { ticks: { color: 'rgba(232,236,255,0.5)', maxRotation: 45 }, grid: { display: false } },
+        x: {
+          ticks: { color: "rgba(232,236,255,0.5)", maxRotation: 45 },
+          grid: { display: false },
+        },
       },
     },
-  })
+  });
 }
 
 // ── Lifecycle ──────────────────────────────────────────────
 onMounted(async () => {
   if (savedRuns.value.length >= 2) {
-    await nextTick()
-    renderHistoryChart()
+    await nextTick();
+    renderHistoryChart();
   }
-})
+});
 
 onUnmounted(() => {
-  latencyChartInst?.destroy()
-  compareChartInst?.destroy()
-  historyChartInst?.destroy()
-})
+  latencyChartInst?.destroy();
+  compareChartInst?.destroy();
+  historyChartInst?.destroy();
+});
 </script>
 
 <template>
@@ -433,14 +481,16 @@ onUnmounted(() => {
           <div class="field__label">Target</div>
           <select v-model="target" class="input">
             <optgroup label="Rewards · lock">
-              <option value="rewards_single_lock">Single   / lock</option>
+              <option value="rewards_single_lock">Single / lock</option>
               <option value="rewards_platform_lock">Platform / lock</option>
-              <option value="rewards_virtual_lock">Virtual  / lock</option>
+              <option value="rewards_virtual_lock">Virtual / lock</option>
             </optgroup>
             <optgroup label="Rewards · no-lock">
-              <option value="rewards_single_no_lock">Single   / no-lock</option>
-              <option value="rewards_platform_no_lock">Platform / no-lock</option>
-              <option value="rewards_virtual_no_lock">Virtual  / no-lock</option>
+              <option value="rewards_single_no_lock">Single / no-lock</option>
+              <option value="rewards_platform_no_lock">
+                Platform / no-lock
+              </option>
+              <option value="rewards_virtual_no_lock">Virtual / no-lock</option>
             </optgroup>
             <optgroup label="Other">
               <option value="users_list">Users list</option>
@@ -452,20 +502,38 @@ onUnmounted(() => {
 
         <label class="field">
           <div class="field__label">Total Requests</div>
-          <input v-model.number="totalRequests" class="input" type="number" min="1" step="1" />
-          <div class="field__hint">Tổng số request gửi đến server trong một lần test</div>
+          <input
+            v-model.number="totalRequests"
+            class="input"
+            type="number"
+            min="1"
+            step="1"
+          />
+          <div class="field__hint">
+            Tổng số request gửi đến server trong một lần test
+          </div>
         </label>
 
         <label class="field">
           <div class="field__label">Concurrency</div>
-          <input v-model.number="concurrency" class="input" type="number" min="1" step="1" />
-          <div class="field__hint">Số request chạy đồng thời (tương đương virtual users)</div>
+          <input
+            v-model.number="concurrency"
+            class="input"
+            type="number"
+            min="1"
+            step="1"
+          />
+          <div class="field__hint">
+            Số request chạy đồng thời (tương đương virtual users)
+          </div>
         </label>
 
         <label class="field">
           <div class="field__label">Timeout</div>
           <div class="input input--readonly">15,000 ms</div>
-          <div class="field__hint">Thời gian chờ tối đa mỗi request — cố định, không thể thay đổi</div>
+          <div class="field__hint">
+            Thời gian chờ tối đa mỗi request — cố định, không thể thay đổi
+          </div>
         </label>
       </div>
 
@@ -473,25 +541,47 @@ onUnmounted(() => {
       <div v-if="isRewards" class="grid grid-2" style="margin-top: 12px">
         <label class="field">
           <div class="field__label">User Count</div>
-          <input v-model.number="userCount" class="input" type="number" min="1" step="1" />
+          <input
+            v-model.number="userCount"
+            class="input"
+            type="number"
+            min="1"
+            step="1"
+          />
           <div class="field__hint">
-            Số lượng user ID khác nhau dùng trong test. Requests được phân bổ vòng tròn qua N user.
-            <strong>Nhiều user = ít lock contention</strong> → kết quả trung thực hơn khi so sánh lock vs no-lock.
-            Đặt về 1 để chủ ý tạo bottleneck.
+            Số lượng user ID khác nhau dùng trong test. Requests được phân bổ
+            vòng tròn qua N user.
+            <strong>Nhiều user = ít lock contention</strong> → kết quả trung
+            thực hơn khi so sánh lock vs no-lock. Đặt về 1 để chủ ý tạo
+            bottleneck.
           </div>
         </label>
 
         <label class="field">
           <div class="field__label">Amount</div>
-          <input v-model.number="amount" class="input" type="number" min="0" step="1" />
-          <div class="field__hint">Số điểm thưởng tích lũy cho mỗi giao dịch</div>
+          <input
+            v-model.number="amount"
+            class="input"
+            type="number"
+            min="0"
+            step="1"
+          />
+          <div class="field__hint">
+            Số điểm thưởng tích lũy cho mỗi giao dịch
+          </div>
         </label>
       </div>
 
       <!-- Actions -->
       <div class="actions">
-        <button class="btn btn--primary" :disabled="running || runningCompare" @click="run">
-          <span v-if="running">Running… {{ progress.done }} / {{ totalRequests }}</span>
+        <button
+          class="btn btn--primary"
+          :disabled="running || runningCompare"
+          @click="run"
+        >
+          <span v-if="running"
+            >Running… {{ progress.done }} / {{ totalRequests }}</span
+          >
           <span v-else>▶ Run</span>
         </button>
 
@@ -527,7 +617,9 @@ onUnmounted(() => {
     <section v-if="results" class="card">
       <div class="card__title">
         Result —
-        <span class="badge">{{ TARGET_LABELS[results.target] ?? results.target }}</span>
+        <span class="badge">{{
+          TARGET_LABELS[results.target] ?? results.target
+        }}</span>
         <span class="badge badge--rps">{{ results.rps }} RPS</span>
       </div>
 
@@ -537,7 +629,9 @@ onUnmounted(() => {
             v-for="s in statCards(results.stats)"
             :key="s.label"
             class="stat-card"
-            :class="{ 'stat-card--fail': s.label === 'Fail' && Number(s.value) > 0 }"
+            :class="{
+              'stat-card--fail': s.label === 'Fail' && Number(s.value) > 0,
+            }"
           >
             <div class="stat-card__label">{{ s.label }}</div>
             <div class="stat-card__value">
@@ -553,13 +647,20 @@ onUnmounted(() => {
 
       <div v-if="results.sampleErrors.length" style="margin-top: 14px">
         <div class="section-label">Sample errors</div>
-        <pre class="pre">{{ results.sampleErrors.join('\n') }}</pre>
+        <pre class="pre">{{ results.sampleErrors.join("\n") }}</pre>
       </div>
     </section>
 
     <!-- ── Compare Modes ─────────────────────── -->
     <section v-if="compareResults.length > 0" class="card">
-      <div class="card__title">So sánh — {{ compareResults.map(r => TARGET_LABELS[r.target] ?? r.target).join(' · ') }}</div>
+      <div class="card__title">
+        So sánh —
+        {{
+          compareResults
+            .map((r) => TARGET_LABELS[r.target] ?? r.target)
+            .join(" · ")
+        }}
+      </div>
 
       <div class="chart-wrap chart-wrap--tall">
         <canvas ref="compareChartCanvas"></canvas>
@@ -581,7 +682,9 @@ onUnmounted(() => {
         </thead>
         <tbody>
           <tr v-for="r in compareResults" :key="r.target">
-            <td class="target-cell">{{ TARGET_LABELS[r.target] ?? r.target }}</td>
+            <td class="target-cell">
+              {{ TARGET_LABELS[r.target] ?? r.target }}
+            </td>
             <td class="ok">{{ r.stats.ok }}</td>
             <td :class="r.stats.fail > 0 ? 'fail' : ''">{{ r.stats.fail }}</td>
             <td>{{ r.stats.p50Ms }} ms</td>
@@ -597,7 +700,9 @@ onUnmounted(() => {
 
     <!-- ── History ────────────────────────────── -->
     <section v-if="savedRuns.length >= 2" class="card">
-      <div class="card__title">History <span class="badge">{{ savedRuns.length }} runs</span></div>
+      <div class="card__title">
+        History <span class="badge">{{ savedRuns.length }} runs</span>
+      </div>
 
       <div class="chart-wrap">
         <canvas ref="historyChartCanvas"></canvas>
@@ -620,7 +725,9 @@ onUnmounted(() => {
         <tbody>
           <tr v-for="r in savedRuns.slice(0, 15)" :key="r.id">
             <td class="time-cell">{{ fmtTime(r.at) }}</td>
-            <td class="target-cell">{{ TARGET_LABELS[r.target] ?? r.target }}</td>
+            <td class="target-cell">
+              {{ TARGET_LABELS[r.target] ?? r.target }}
+            </td>
             <td>{{ r.totalRequests }}</td>
             <td>{{ r.concurrency }}</td>
             <td>{{ r.stats.p50Ms }} ms</td>
@@ -629,7 +736,9 @@ onUnmounted(() => {
             <td class="rps-cell">{{ r.rps }}</td>
             <td>
               <span class="ok">{{ r.stats.ok }}</span> /
-              <span :class="r.stats.fail > 0 ? 'fail' : ''">{{ r.stats.fail }}</span>
+              <span :class="r.stats.fail > 0 ? 'fail' : ''">{{
+                r.stats.fail
+              }}</span>
             </td>
           </tr>
         </tbody>
@@ -667,9 +776,15 @@ onUnmounted(() => {
   display: grid;
   gap: 12px;
 }
-.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 
 /* ── Field ─────────────────────────────── */
 .field {
@@ -757,7 +872,9 @@ onUnmounted(() => {
   cursor: pointer;
   font-weight: 700;
   font-size: 13px;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .btn:disabled {
@@ -933,21 +1050,39 @@ onUnmounted(() => {
   line-height: 1.45;
 }
 
-.ok   { color: #34d399; font-weight: 600; }
-.fail { color: #f87171; font-weight: 600; }
+.ok {
+  color: #34d399;
+  font-weight: 600;
+}
+.fail {
+  color: #f87171;
+  font-weight: 600;
+}
 
 /* ── Responsive ────────────────────────── */
 @media (max-width: 1100px) {
-  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .result-layout { grid-template-columns: 1fr; }
-  .stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .result-layout {
+    grid-template-columns: 1fr;
+  }
+  .stat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
   .grid-4,
   .grid-3,
-  .grid-2 { grid-template-columns: 1fr; }
-  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

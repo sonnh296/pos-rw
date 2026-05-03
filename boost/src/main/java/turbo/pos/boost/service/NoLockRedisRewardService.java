@@ -46,16 +46,6 @@ public class NoLockRedisRewardService {
 					.threadName(Thread.currentThread().toString())
 					.processingTimeMs(System.currentTimeMillis() - start)
 					.build();
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			log.error("NoLockRedisRewardService interrupted", e);
-			return RewardResponse.builder()
-					.customerId(request.getCustomerId())
-					.totalPoints(0L)
-					.status("ERROR")
-					.threadName(Thread.currentThread().toString())
-					.processingTimeMs(System.currentTimeMillis() - start)
-					.build();
 		} catch (Exception e) {
 			if (isRedisUnavailable(e)) {
 				log.error("NoLockRedisRewardService: Redis unavailable -> circuit breaker fallback", e);

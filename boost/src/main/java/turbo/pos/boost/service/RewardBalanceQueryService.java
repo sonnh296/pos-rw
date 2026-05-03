@@ -294,9 +294,6 @@ public class RewardBalanceQueryService {
 
 	/** Xóa toàn bộ dữ liệu demo điểm để reset test. */
 	public Map<String, Object> clearAllPointsData() {
-		// Xoá .jtl: JMeter SimpleDataWriter append — file cũ làm verdict lệch.
-		long deletedJtlFiles = TestRunSummaryService.deleteAllJtlFiles();
-
 		long deletedLedger = jdbcClient.sql("DELETE FROM reward_ledger").update();
 		long deletedBalances = jdbcClient.sql("DELETE FROM customer_balance").update();
 
@@ -346,7 +343,6 @@ public class RewardBalanceQueryService {
 		}
 
 		Map<String, Object> out = new LinkedHashMap<>();
-		out.put("deletedJtlFiles", deletedJtlFiles);
 		out.put("deletedLedgerRows", deletedLedger);
 		out.put("deletedBalanceRows", deletedBalances);
 		out.put("deletedRedisMainHash", deletedRedisMain);

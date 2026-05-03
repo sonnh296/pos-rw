@@ -106,16 +106,6 @@ public class LockingRedisRewardService {
                     .threadName(Thread.currentThread().toString())
                     .processingTimeMs(System.currentTimeMillis() - start)
                     .build();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("LockingRedisRewardService.processReward interrupted", e);
-            return RewardResponse.builder()
-                    .customerId(customerId)
-                    .totalPoints(0L)
-                    .status("ERROR")
-                    .threadName(Thread.currentThread().toString())
-                    .processingTimeMs(System.currentTimeMillis() - start)
-                    .build();
         } catch (Exception e) {
             if (isRedisUnavailable(e)) {
                 log.error("LockingRedisRewardService: Redis unavailable -> circuit breaker fallback", e);

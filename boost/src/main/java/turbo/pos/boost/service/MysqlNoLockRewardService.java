@@ -67,10 +67,6 @@ public class MysqlNoLockRewardService {
 					.threadName(Thread.currentThread().toString())
 					.processingTimeMs(System.currentTimeMillis() - start)
 					.build();
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			log.error("MysqlNoLockRewardService interrupted", e);
-			return error(customerId, start);
 		} catch (Exception e) {
 			log.error("MysqlNoLockRewardService failed", e);
 			return error(customerId, start);

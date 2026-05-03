@@ -4,11 +4,13 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 
 const NAV = [
-  { to: '/users', label: 'Customer Points', icon: '👥' },
+  { to: '/users', label: 'Điểm Khách Hàng', icon: '👥' },
+  { to: '/custom-tests', label: 'Kiểm Thử Hiệu Năng', icon: '🧪' },
 ] as const
 
 const PAGE_TITLES: Record<string, string> = {
   '/users': 'Danh sách điểm khách hàng',
+  '/custom-tests': 'Kiểm Thử Hiệu Năng Tùy Chỉnh',
 }
 </script>
 
