@@ -58,6 +58,7 @@
                 </div>
                 <div class="metrics-text" v-if="phase1Summary[`${exec}_LOCK`]">
                   Chính xác: {{ phase1Summary[`${exec}_LOCK`].accurate }} | Sai lệch: {{ Math.max(0, phase1Summary[`${exec}_LOCK`].total - phase1Summary[`${exec}_LOCK`].accurate) }}
+                  <div class="avg-hint">Thời gian TB: {{ Math.round(phase1Summary[`${exec}_LOCK`].avgDuration) }}ms</div>
                 </div>
               </div>
               <div class="pie-chart-wrapper">
@@ -67,6 +68,7 @@
                 </div>
                 <div class="metrics-text" v-if="phase1Summary[`${exec}_NO_LOCK`]">
                   Chính xác: {{ phase1Summary[`${exec}_NO_LOCK`].accurate }} | Sai lệch: {{ Math.max(0, phase1Summary[`${exec}_NO_LOCK`].total - phase1Summary[`${exec}_NO_LOCK`].accurate) }}
+                  <div class="avg-hint">Thời gian TB: {{ Math.round(phase1Summary[`${exec}_NO_LOCK`].avgDuration) }}ms</div>
                 </div>
               </div>
             </div>

@@ -28,12 +28,12 @@ public class NoLockRedisRewardService {
 			String customerId = request.getCustomerId();
 			long pointsToAdd = Math.round(request.getAmount() * 10);
 
-			// Mỗi SUCCESS bump expected (độc lập RMW race).
+			// Mỗi SUCCESS tăng giá trị expected (độc lập với race condition của RMW).
 			stringRedisTemplate.opsForValue().increment(EXPECTED_PREFIX + customerId, pointsToAdd);
 
 			TimeUnit.MILLISECONDS.sleep(50);
 
-			// Intentionally non-atomic read-modify-write to demonstrate race conditions in no-lock mode.
+			// Cố tình thực hiện read-modify-write không atomic để minh họa hiện tượng race condition khi không dùng lock.
 			Object raw = stringRedisTemplate.opsForHash().get(HASH_KEY, customerId);
 			long current = raw == null ? 0L : Long.parseLong(raw.toString());
 			long newPoints = current + pointsToAdd;
@@ -48,10 +48,10 @@ public class NoLockRedisRewardService {
 					.build();
 		} catch (Exception e) {
 			if (isRedisUnavailable(e)) {
-				log.error("NoLockRedisRewardService: Redis unavailable -> circuit breaker fallback", e);
+				log.error("NoLockRedisRewardService: Redis không khả dụng -> kích hoạt circuit breaker", e);
 				throw new RedisUnavailableException("Redis unavailable", e);
 			}
-			log.error("NoLockRedisRewardService failed", e);
+			log.error("NoLockRedisRewardService thất bại", e);
 			return RewardResponse.builder()
 					.customerId(request.getCustomerId())
 					.totalPoints(0L)
@@ -68,7 +68,7 @@ public class NoLockRedisRewardService {
 			String cn = t.getClass().getName();
 			String msg = t.getMessage() == null ? "" : t.getMessage().toLowerCase();
 
-			// Heuristic: connection/timeout failures (Spring Redis / Redisson / netty / etc.)
+			// Kiểm tra các lỗi kết nối hoặc timeout (Spring Redis / Redisson / Netty...)
 			if (cn.contains("RedisConnection") || cn.contains("RedisTimeout") || cn.contains("Redisson")
 					|| t instanceof java.net.ConnectException || t instanceof java.net.SocketTimeoutException) {
 				return true;

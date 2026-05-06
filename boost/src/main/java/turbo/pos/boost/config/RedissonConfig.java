@@ -22,7 +22,7 @@ public class RedissonConfig {
 	public RedissonClient redissonClient(
 			@Value("${spring.data.redis.host:localhost}") String host,
 			@Value("${spring.data.redis.port:6379}") int port) {
-		// Lazy Redisson: no connect at startup; first use creates client (MySQL fallback if Redis down).
+		// Lazy Redisson: không kết nối tại thời điểm khởi động; lần gọi đầu tiên sẽ tạo client (phòng trường hợp Redis chưa sẵn sàng).
 		Config config = new Config();
 		config.useSingleServer()
 				.setAddress("redis://" + host + ":" + port)
@@ -30,13 +30,13 @@ public class RedissonConfig {
 				.setConnectionMinimumIdleSize(10);
 
 		AtomicReference<RedissonClient> delegateRef = new AtomicReference<>();
-		// Proxy: mọi call RedissonClient mới thực sự gọi Redisson.create (tránh connect khi khởi động context).
+		// Proxy: mọi lời gọi RedissonClient mới thực sự gọi Redisson.create (tránh kết nối khi khởi động context).
 		InvocationHandler handler = new InvocationHandler() {
 			@Override
 			public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
 				String name = method.getName();
 
-				// No-op shutdown if delegate never created.
+				// No-op shutdown nếu delegate chưa được tạo.
 				if ("shutdown".equals(name) && (args == null || args.length == 0)) {
 					RedissonClient d = delegateRef.get();
 					if (d != null) d.shutdown();

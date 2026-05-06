@@ -38,8 +38,8 @@ public class LockingRewardService {
 	}
 
 	private RewardResponse fallbackProcessReward(TransactionRequest request, Throwable t) {
-		// Redis is down => fall back to MySQL locking for consistency.
-		log.warn("CircuitBreaker fallback (redisLocking) => mysql-only. cause={}", t == null ? "unknown" : t.toString());
+		// Redis gặp sự cố => Fallback sang cơ chế lock của MySQL để đảm bảo tính nhất quán.
+		log.warn("CircuitBreaker fallback (redisLock) => mysql-locking. cause={}", t == null ? "unknown" : t.toString());
 		RewardResponse res = mysqlLocking.getObject().processReward(request);
 		if (res != null && res.getStatus() != null) {
 			res.setStatus(res.getStatus() + "_REDIS_LOCK_REJECTED_FALLBACK_MYSQL");

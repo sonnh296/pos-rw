@@ -6,11 +6,11 @@ import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import turbo.pos.boost.dto.RewardResponse;
 import turbo.pos.boost.dto.TransactionRequest;
+import turbo.pos.boost.repository.RewardRepository;
 
 /**
  * Fallback path khi Redis chết (availability + consistency):
@@ -23,7 +23,7 @@ import turbo.pos.boost.dto.TransactionRequest;
 @RequiredArgsConstructor
 public class MysqlLockingRewardService {
 
-	private final JdbcClient jdbcClient;
+	private final RewardRepository rewardRepository;
 
 	@Transactional
 	public RewardResponse processReward(TransactionRequest request) {
@@ -34,8 +34,8 @@ public class MysqlLockingRewardService {
 		BigDecimal amount = BigDecimal.valueOf(request.getAmount());
 
 		try {
-			if (existsTransactionId(txnId)) {
-				long bal = getBalance(customerId);
+			if (rewardRepository.existsByTransactionId(txnId)) {
+				long bal = rewardRepository.findBalanceByCustomerId(customerId).orElse(0L);
 				return RewardResponse.builder()
 						.customerId(customerId)
 						.totalPoints(bal)
@@ -47,21 +47,14 @@ public class MysqlLockingRewardService {
 
 			TimeUnit.MILLISECONDS.sleep(50);
 
-			jdbcClient.sql("INSERT IGNORE INTO customer_balance (customer_id, balance) VALUES (?, 0)")
-					.param(customerId)
-					.update();
-			Long balance = jdbcClient.sql("SELECT balance FROM customer_balance WHERE customer_id = ? FOR UPDATE")
-					.param(customerId)
-					.query(Long.class)
-					.single();
+			rewardRepository.ensureCustomerBalanceRecord(customerId);
+			Long balance = rewardRepository.findBalanceByCustomerIdForUpdate(customerId)
+					.orElse(0L);
 
 			try {
-				jdbcClient.sql(
-						"INSERT INTO reward_ledger (customer_id, transaction_id, amount, points_delta) VALUES (?, ?, ?, ?)")
-						.params(customerId, txnId, amount, pointsDelta)
-						.update();
+				rewardRepository.insertLedgerEntry(customerId, txnId, amount, pointsDelta);
 			} catch (DataIntegrityViolationException e) {
-				long bal = getBalance(customerId);
+				long bal = rewardRepository.findBalanceByCustomerId(customerId).orElse(0L);
 				return RewardResponse.builder()
 						.customerId(customerId)
 						.totalPoints(bal)
@@ -72,10 +65,7 @@ public class MysqlLockingRewardService {
 			}
 
 			long newBalance = balance + pointsDelta;
-			jdbcClient.sql("UPDATE customer_balance SET balance = ? WHERE customer_id = ?")
-					.param(newBalance)
-					.param(customerId)
-					.update();
+			rewardRepository.updateBalance(customerId, newBalance);
 
 			return RewardResponse.builder()
 					.customerId(customerId)
@@ -88,22 +78,6 @@ public class MysqlLockingRewardService {
 			log.error("MysqlLockingRewardService failed", e);
 			return error(customerId, start);
 		}
-	}
-
-	private boolean existsTransactionId(String txnId) {
-		Long count = jdbcClient.sql("SELECT COUNT(*) FROM reward_ledger WHERE transaction_id = ?")
-				.param(txnId)
-				.query(Long.class)
-				.single();
-		return count != null && count > 0;
-	}
-
-	private long getBalance(String customerId) {
-		return jdbcClient.sql("SELECT balance FROM customer_balance WHERE customer_id = ?")
-				.param(customerId)
-				.query(Long.class)
-				.optional()
-				.orElse(0L);
 	}
 
 	private static RewardResponse error(String customerId, long start) {

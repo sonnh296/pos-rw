@@ -5,12 +5,14 @@ const route = useRoute()
 
 const NAV = [
   { to: '/users', label: 'Điểm Khách Hàng', icon: '👥' },
+  { to: '/customers', label: 'Quản lý Người dùng', icon: '🛠️' },
   { to: '/custom-tests', label: 'Kiểm Thử Hiệu Năng', icon: '🧪' },
 ] as const
 
 const PAGE_TITLES: Record<string, string> = {
   '/users': 'Danh sách điểm khách hàng',
   '/custom-tests': 'Kiểm Thử Hiệu Năng Tùy Chỉnh',
+  '/customers': 'Quản lý Người dùng hệ thống',
 }
 </script>
 

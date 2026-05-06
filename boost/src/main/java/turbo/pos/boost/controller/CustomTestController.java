@@ -67,11 +67,16 @@ public class CustomTestController {
                 long total = filtered.size();
                 double percent = total > 0 ? (double) accurate / total * 100 : 0;
                 
+                double avgDuration = filtered.stream()
+                    .mapToLong(Phase1Result::getDurationMs)
+                    .average().orElse(0);
+                
                 String key = exec + "_" + mode;
                 summary.put(key, Map.of(
                     "accurate", accurate,
                     "total", total,
-                    "percent", percent
+                    "percent", percent,
+                    "avgDuration", avgDuration
                 ));
             }
         }

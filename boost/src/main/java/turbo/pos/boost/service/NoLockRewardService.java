@@ -34,7 +34,7 @@ public class NoLockRewardService {
 	}
 
 	private RewardResponse fallbackProcessReward(TransactionRequest request, Throwable t) {
-		// Redis is down => degraded mode: fall back to MySQL for availability.
+		// Redis gặp sự cố => Chuyển sang chế độ dự phòng: dùng trực tiếp MySQL để đảm bảo tính sẵn sàng.
 		log.warn("CircuitBreaker fallback (redisNoLock) => mysql-only. cause={}", t == null ? "unknown" : t.toString());
 		RewardResponse res = mysqlNoLock.getObject().processReward(request);
 		if (res != null && res.getStatus() != null) {

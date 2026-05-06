@@ -78,27 +78,28 @@ public class CustomTestService {
                     for (String mode : modes) {
                         for (int i = 1; i <= iterations; i++) {
                             if (cancelPhase1) {
-                                log.info("Phase 1 aborted by user.");
+                                log.info("Giai đoạn 1 bị hủy bởi người dùng.");
                                 break outer;
                             }
+                            // Chạy một vòng lặp kiểm tra Phase 1
                             runPhase1SingleIteration(executorName, executor, mode, i);
                             phase1Progress.incrementAndGet();
                         }
                     }
                 }
             } catch (Exception e) {
-                log.error("Phase 1 test failed", e);
+                log.error("Kiểm thử nền Giai đoạn 1 thất bại", e);
             } finally {
                 phase1Running = false;
                 cancelPhase1 = false;
             }
-        }, virtualExecutor); // use virtual for orchestrating
+        }, virtualExecutor); // Sử dụng Virtual Thread để điều phối (orchestration)
     }
 
     private void runPhase1SingleIteration(String executorName, TaskExecutor executor, String mode, int iteration) {
         String customerId = "t-p1-" + mode + "-" + UUID.randomUUID().toString().substring(0, 8);
         double amount = Math.round(ThreadLocalRandom.current().nextDouble(10.0, 100.0) * 100.0) / 100.0;
-        long expectedPoints = Math.round(amount * 10) * 5; // 5 requests
+        long expectedPoints = Math.round(amount * 10) * 5; // 5 yêu cầu
 
         String targetPath = "/api/rewards/" + executorName.toLowerCase() + "/" + mode.toLowerCase().replace("_", "-");
         String jtlPath = "jmeter/results/custom_p1_" + executorName.toLowerCase() + "_" + mode.toLowerCase() + "_" + iteration + ".jtl";

@@ -8,11 +8,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.core.task.support.TaskExecutorAdapter;
 
-/* single (serial), platform (fixed pool), virtual — so sánh mô hình thread; cỡ pool: app.executors.platform.size */
+/* single (serial), platform (fixed pool), virtual — so sánh mô hình thread; */
 @Configuration
 public class ThreadConfig {
 
-	/** Kích thước pool platform (prod thường cao hơn; demo thấp hơn để thấy queue). */
+	/** Kích thước pool platform */
 	@Value("${app.executors.platform.size:50}")
 	private int platformPoolSize;
 
