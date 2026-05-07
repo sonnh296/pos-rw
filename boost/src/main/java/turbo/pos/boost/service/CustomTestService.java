@@ -78,7 +78,7 @@ public class CustomTestService {
                     for (String mode : modes) {
                         for (int i = 1; i <= iterations; i++) {
                             if (cancelPhase1) {
-                                log.info("Giai đoạn 1 bị hủy bởi người dùng.");
+                                log.info("Phase 1 aborted by user.");
                                 break outer;
                             }
                             // Chạy một vòng lặp kiểm tra Phase 1
@@ -88,7 +88,7 @@ public class CustomTestService {
                     }
                 }
             } catch (Exception e) {
-                log.error("Kiểm thử nền Giai đoạn 1 thất bại", e);
+                log.error("Phase 1 background test failed", e);
             } finally {
                 phase1Running = false;
                 cancelPhase1 = false;
@@ -123,11 +123,8 @@ public class CustomTestService {
             pb.start().waitFor();
 
             // Query actual points
-            Map<String, Object> pointsData = rewardBalanceQueryService.getPrimaryPoints(customerId);
-            long actualPoints = 0;
-            if (pointsData != null && pointsData.get("points") != null) {
-                actualPoints = ((Number) pointsData.get("points")).longValue();
-            }
+            turbo.pos.boost.dto.CustomerPointsResponse pointsData = rewardBalanceQueryService.getPrimaryPoints(customerId);
+            long actualPoints = pointsData != null ? pointsData.getPrimaryPoints() : 0;
 
             boolean isAccurate = (expectedPoints == actualPoints);
             long duration = System.currentTimeMillis() - start;

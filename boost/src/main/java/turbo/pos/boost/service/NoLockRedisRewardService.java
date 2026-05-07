@@ -48,10 +48,10 @@ public class NoLockRedisRewardService {
 					.build();
 		} catch (Exception e) {
 			if (isRedisUnavailable(e)) {
-				log.error("NoLockRedisRewardService: Redis không khả dụng -> kích hoạt circuit breaker", e);
+				log.error("NoLockRedisRewardService: Redis unavailable -> triggering circuit breaker", e);
 				throw new RedisUnavailableException("Redis unavailable", e);
 			}
-			log.error("NoLockRedisRewardService thất bại", e);
+			log.error("NoLockRedisRewardService failed", e);
 			return RewardResponse.builder()
 					.customerId(request.getCustomerId())
 					.totalPoints(0L)

@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import turbo.pos.boost.dto.ConsistencyReportResponse;
+import turbo.pos.boost.dto.CustomerPointsResponse;
 import turbo.pos.boost.dto.RewardResponse;
 import turbo.pos.boost.dto.TransactionRequest;
 import turbo.pos.boost.service.LockingRewardService;
@@ -84,12 +86,12 @@ public class RewardController {
 	}
 
 	@GetMapping("/points/{customerId}")
-	public Map<String, Object> getPoints(@PathVariable String customerId) {
+	public CustomerPointsResponse getPoints(@PathVariable String customerId) {
 		return rewardBalanceQueryService.getPrimaryPoints(customerId);
 	}
 
 	@GetMapping("/points")
-	public Map<String, Object> listPoints(
+	public CustomerPointsResponse.PagedList listPoints(
 			@RequestParam(defaultValue = "50") int limit,
 			@RequestParam(defaultValue = "0") int offset,
 			@RequestParam(required = false) String keyword) {
@@ -107,12 +109,12 @@ public class RewardController {
 	}
 
 	@GetMapping("/balance/compare/{customerId}")
-	public Map<String, Object> compareBalances(@PathVariable String customerId) {
+	public CustomerPointsResponse compareBalances(@PathVariable String customerId) {
 		return rewardBalanceQueryService.compareBalances(customerId);
 	}
 
 	@GetMapping("/consistency/global")
-	public Map<String, Object> globalConsistency() {
+	public ConsistencyReportResponse globalConsistency() {
 		return rewardBalanceQueryService.globalConsistencyReport();
 	}
 }

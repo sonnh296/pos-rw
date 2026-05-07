@@ -11,12 +11,19 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import turbo.pos.boost.config.RewardModeProperties;
+import turbo.pos.boost.dto.ConsistencyReportResponse;
+import turbo.pos.boost.dto.CustomerPointsResponse;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
+import java.util.HashSet;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RewardBalanceQueryService {
@@ -51,6 +58,7 @@ public class RewardBalanceQueryService {
 			}
 			return Long.parseLong(raw.toString());
 		} catch (Exception e) {
+			log.warn("Could not fetch Redis points for customer {}: {}", customerId, e.getMessage());
 			return null;
 		}
 	}
@@ -68,6 +76,7 @@ public class RewardBalanceQueryService {
 			String raw = redis.opsForValue().get(EXPECTED_PREFIX + customerId);
 			return raw == null ? 0L : Long.parseLong(raw);
 		} catch (Exception e) {
+			log.warn("Could not fetch Expected points for customer {}: {}", customerId, e.getMessage());
 			return null;
 		}
 	}
@@ -82,17 +91,25 @@ public class RewardBalanceQueryService {
 	}
 
 	/** Điểm “chính” theo chế độ: Redis (mặc định) hoặc MySQL (mysql-only). */
-	public Map<String, Object> getPrimaryPoints(String customerId) {
+	public CustomerPointsResponse getPrimaryPoints(String customerId) {
 		if (rewardModeProperties.isMysqlOnly()) {
 			long p = getMysqlBalance(customerId);
-			return Map.of("customerId", customerId, "points", p, "source", "mysql");
+			return CustomerPointsResponse.builder()
+					.customerId(customerId)
+					.primaryPoints(p)
+					.source("mysql")
+					.build();
 		}
 		Long redis = getRedisPointsOrNull(customerId);
-		return Map.of("customerId", customerId, "points", redis != null ? redis : 0L, "source", "redis");
+		return CustomerPointsResponse.builder()
+				.customerId(customerId)
+				.primaryPoints(redis != null ? redis : 0L)
+				.source("redis")
+				.build();
 	}
 
 	/** Σ MySQL {@code customer_balance} vs Σ Redis {@code customer:points}; {@code outboxPending} khi chưa drain. */
-	public Map<String, Object> globalConsistencyReport() {
+	public ConsistencyReportResponse globalConsistencyReport() {
 		long mysqlTotal = jdbcClient.sql("SELECT COALESCE(SUM(balance), 0) FROM customer_balance")
 				.query(Long.class)
 				.optional()
@@ -106,29 +123,22 @@ public class RewardBalanceQueryService {
 		Long redisCustomers = null;
 		Long outboxPending = null;
 		Long expectedTotal = null;
-		StringRedisTemplate redis = stringRedisTemplate.getIfAvailable();
-		if (redis != null) {
+		StringRedisTemplate redisTemplate = stringRedisTemplate.getIfAvailable();
+		if (redisTemplate != null) {
 			try {
-				Map<Object, Object> all = redis.opsForHash().entries(HASH_KEY);
+				Map<Object, Object> all = redisTemplate.opsForHash().entries(HASH_KEY);
 				long sum = 0L;
 				for (Object v : all.values()) {
 					sum += asLong(v);
 				}
 				redisTotal = sum;
 				redisCustomers = (long) all.size();
-				outboxPending = redis.opsForList().size(OUTBOX_KEY);
-				expectedTotal = sumExpectedKeys(redis);
-			} catch (Exception ignored) {
+				outboxPending = redisTemplate.opsForList().size(OUTBOX_KEY);
+				expectedTotal = sumExpectedKeys(redisTemplate);
+			} catch (Exception e) {
+				log.error("Error generating global consistency report: ", e);
 			}
 		}
-
-		Map<String, Object> out = new LinkedHashMap<>();
-		out.put("mysqlTotalPoints", mysqlTotal);
-		out.put("mysqlCustomerCount", mysqlCustomers);
-		out.put("redisTotalPoints", redisTotal);
-		out.put("redisCustomerCount", redisCustomers);
-		out.put("outboxPending", outboxPending);
-		out.put("expectedTotalPoints", expectedTotal);
 
 		// Verdict: ưu tiên OUTBOX_DRAINING trước khi so sánh tổng redis/mysql (outbox > 0 ⇒ redis có thể > mysql hợp lệ).
 		String verdict;
@@ -143,8 +153,6 @@ public class RewardBalanceQueryService {
 		} else {
 			verdict = "REDIS_BEHIND";
 		}
-		out.put("verdict", verdict);
-		out.put("diff", redisTotal == null ? null : (redisTotal - mysqlTotal));
 
 		// Σ expected:* vs Σ customer:points (lệch → lost update ngoài lock).
 		String promiseVerdict;
@@ -162,17 +170,41 @@ public class RewardBalanceQueryService {
 				promiseVerdict = "OVER_APPLIED";
 			}
 		}
-		out.put("promiseVerdict", promiseVerdict);
-		out.put("promiseDiff", promiseDiff);
-		out.put("note", "Chạy sau khi load test xong vài giây để rewards-batch drain outbox.");
-		return out;
+
+		return ConsistencyReportResponse.builder()
+				.mysqlTotalPoints(mysqlTotal)
+				.mysqlCustomerCount(mysqlCustomers)
+				.redisTotalPoints(redisTotal)
+				.redisCustomerCount(redisCustomers)
+				.outboxPending(outboxPending)
+				.expectedTotalPoints(expectedTotal)
+				.verdict(verdict)
+				.diff(redisTotal == null ? null : (redisTotal - mysqlTotal))
+				.promiseVerdict(promiseVerdict)
+				.promiseDiff(promiseDiff)
+				.note("Chạy sau khi load test xong vài giây để rewards-batch drain outbox.")
+				.build();
 	}
 
-	/** Σ giá trị key {@code expected:*} (SCAN/KEYS theo driver; demo-only). */
-	private static Long sumExpectedKeys(StringRedisTemplate redis) {
+	/** Σ giá trị key {@code expected:*} (Sử dụng SCAN để tránh chặn Redis). */
+	private Long sumExpectedKeys(StringRedisTemplate redis) {
 		try {
-			Set<String> keys = redis.keys(EXPECTED_SCAN_PATTERN);
-			if (keys == null || keys.isEmpty()) return 0L;
+			Set<String> keys = new HashSet<>();
+			ScanOptions options = ScanOptions.scanOptions().match(EXPECTED_SCAN_PATTERN).count(1000).build();
+
+			// execute với callback để dùng connection trực tiếp
+			redis.execute((org.springframework.data.redis.connection.RedisConnection connection) -> {
+				try (Cursor<byte[]> cursor = connection.keyCommands().scan(options)) {
+					while (cursor.hasNext()) {
+						keys.add(new String(cursor.next()));
+					}
+				} catch (Exception e) {
+					log.error("Error during Redis SCAN: ", e);
+				}
+				return null;
+			});
+
+			if (keys.isEmpty()) return 0L;
 			List<String> values = redis.opsForValue().multiGet(keys);
 			if (values == null) return 0L;
 			long sum = 0L;
@@ -180,36 +212,33 @@ public class RewardBalanceQueryService {
 				if (v == null) continue;
 				try {
 					sum += Long.parseLong(v);
-				} catch (NumberFormatException ignored) {
-					// skip malformed
+				} catch (NumberFormatException e) {
+					log.debug("Skipping malformed expected key: {}", v);
 				}
 			}
 			return sum;
 		} catch (Exception e) {
+			log.error("Error summing Expected points from Redis: ", e);
 			return null;
 		}
 	}
 
 	/** So sánh consistency: MySQL vs Redis (Redis vắng khi profile mysql-only). */
-	public Map<String, Object> compareBalances(String customerId) {
+	public CustomerPointsResponse compareBalances(String customerId) {
 		long mysql = getMysqlBalance(customerId);
 		Long redis = getRedisPointsOrNull(customerId);
-		Map<String, Object> out = new LinkedHashMap<>();
-		out.put("customerId", customerId);
-		out.put("mysqlBalance", mysql);
-		out.put("redisPoints", redis);
-		out.put("inSync", redis != null && mysql == redis);
-		out.put("note", redis == null
-				? "Không có Redis (mysql-only hoặc bean tắt)."
-				: "inSync: Redis trùng customer_balance.");
-		return out;
+		return CustomerPointsResponse.builder()
+				.customerId(customerId)
+				.mysqlBalance(mysql)
+				.redisPoints(redis)
+				.inSync(redis != null && mysql == redis)
+				.build();
 	}
 
 	/**
 	 * Danh sách khách hàng + điểm để hiển thị UI (có phân trang/tìm kiếm).
-	 * Nguồn chính: {@code customer_balance}; nếu rỗng nhưng có Redis thì fallback hash {@code customer:points} (phân trang trong memory).
 	 */
-	public Map<String, Object> listCustomerPoints(int limit, int offset, String keyword) {
+	public CustomerPointsResponse.PagedList listCustomerPoints(int limit, int offset, String keyword) {
 		limit = Math.min(Math.max(1, limit), 200);
 		offset = Math.max(0, offset);
 		String q = keyword == null ? "" : keyword.trim();
@@ -252,12 +281,12 @@ public class RewardBalanceQueryService {
 		}
 
 		boolean mysqlOnly = rewardModeProperties.isMysqlOnly();
-		List<Map<String, Object>> rows = new ArrayList<>(mysqlRows.size());
+		List<CustomerPointsResponse> rows = new ArrayList<>(mysqlRows.size());
 		for (Map<String, Object> mysqlRow : mysqlRows) {
 			String customerId = String.valueOf(mysqlRow.get("customer_id"));
 			long mysqlBalance = asLong(mysqlRow.get("balance"));
 			Long redisPoints = mysqlOnly ? null : getRedisPointsOrNull(customerId);
-			rows.add(buildPointsRow(customerId, mysqlBalance, redisPoints, mysqlOnly, mysqlRow.get("updated_at")));
+			rows.add(buildPointsRowDto(customerId, mysqlBalance, redisPoints, mysqlOnly, mysqlRow.get("updated_at")));
 		}
 
 		// Redis-only demo: MySQL chưa có row.
@@ -266,30 +295,30 @@ public class RewardBalanceQueryService {
 			if (redis != null) {
 				try {
 					Map<Object, Object> redisAll = redis.opsForHash().entries(HASH_KEY);
-					List<Map<String, Object>> redisRows = redisAll.entrySet().stream()
+					List<CustomerPointsResponse> redisRows = redisAll.entrySet().stream()
 							.map(e -> Map.entry(String.valueOf(e.getKey()), asLong(e.getValue())))
 							.filter(e -> !hasKeyword || e.getKey().contains(q))
 							.sorted(Comparator.comparing(Map.Entry::getKey))
-							.map(e -> buildPointsRow(e.getKey(), 0L, e.getValue(), false, null))
+							.map(e -> buildPointsRowDto(e.getKey(), 0L, e.getValue(), false, null))
 							.toList();
 
-					// Redis hash không có LIMIT/OFFSET SQL — cắt subList sau khi đã build full list.
 					int from = Math.min(offset, redisRows.size());
 					int to = Math.min(from + limit, redisRows.size());
 					rows = new ArrayList<>(redisRows.subList(from, to));
 					total = redisRows.size();
-				} catch (Exception ignored) {
+				} catch (Exception e) {
+					log.warn("Could not fetch customer list from Redis fallback: {}", e.getMessage());
 				}
 			}
 		}
 
-		Map<String, Object> out = new LinkedHashMap<>();
-		out.put("rows", rows);
-		out.put("total", total);
-		out.put("limit", limit);
-		out.put("offset", offset);
-		out.put("keyword", q);
-		return out;
+		return CustomerPointsResponse.PagedList.builder()
+				.rows(rows)
+				.total(total)
+				.limit(limit)
+				.offset(offset)
+				.keyword(q)
+				.build();
 	}
 
 	/** Xóa toàn bộ dữ liệu demo điểm để reset test. */
@@ -336,9 +365,11 @@ public class RewardBalanceQueryService {
 						}
 					}
 				} catch (Exception flushEx) {
+					log.warn("FlushDb failed: {}", flushEx.getMessage());
 					redisNote = "flush-failed: " + flushEx.getClass().getSimpleName();
 				}
-			} catch (Exception ignored) {
+			} catch (Exception e) {
+				log.error("Error clearing Redis data: ", e);
 			}
 		}
 
@@ -411,6 +442,7 @@ public class RewardBalanceQueryService {
 			out.put("status", "REHYDRATED");
 			out.put("customers", customers);
 		} catch (Exception e) {
+			log.error("Rehydrate Redis failed: ", e);
 			out.put("status", "FAILED");
 			out.put("error", e.getClass().getSimpleName());
 			out.put("message", e.getMessage());
@@ -429,7 +461,8 @@ public class RewardBalanceQueryService {
 		}
 		try {
 			return Long.parseLong(value.toString());
-		} catch (Exception ignored) {
+		} catch (Exception e) {
+			log.debug("Could not parse value as Long: {}", value);
 			return 0L;
 		}
 	}
@@ -442,18 +475,17 @@ public class RewardBalanceQueryService {
 		return row;
 	}
 
-	private static Map<String, Object> buildPointsRow(String customerId, long mysqlBalance, Long redisPoints, boolean mysqlOnly,
+	private static CustomerPointsResponse buildPointsRowDto(String customerId, long mysqlBalance, Long redisPoints, boolean mysqlOnly,
 			Object updatedAt) {
-		// Chế độ redis: ưu tiên điểm hash; null (Redis lỗi/chưa có field) thì lấy mysql để UI không âm thầm 0.
 		long primaryPoints = mysqlOnly ? mysqlBalance : (redisPoints != null ? redisPoints : mysqlBalance);
-		Map<String, Object> row = new LinkedHashMap<>();
-		row.put("customerId", customerId);
-		row.put("mysqlBalance", mysqlBalance);
-		row.put("redisPoints", redisPoints);
-		row.put("primaryPoints", primaryPoints);
-		row.put("source", mysqlOnly ? "mysql" : "redis");
-		row.put("inSync", redisPoints != null && redisPoints == mysqlBalance);
-		row.put("updatedAt", updatedAt);
-		return row;
+		return CustomerPointsResponse.builder()
+				.customerId(customerId)
+				.mysqlBalance(mysqlBalance)
+				.redisPoints(redisPoints)
+				.primaryPoints(primaryPoints)
+				.source(mysqlOnly ? "mysql" : "redis")
+				.inSync(redisPoints != null && redisPoints == mysqlBalance)
+				.updatedAt(updatedAt)
+				.build();
 	}
 }
