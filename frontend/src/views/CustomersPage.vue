@@ -1,13 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { apiFetch } from "../lib/api";
-
-type User = {
-  id: string;
-  name: string;
-  email: string;
-  createdAt: string;
-};
+import { userService } from "@/api/user.service";
+import type { User } from "@/types";
+import BaseCard from "@/components/ui/BaseCard.vue";
+import BaseButton from "@/components/ui/BaseButton.vue";
 
 const users = ref<User[]>([]);
 const loading = ref(false);
@@ -29,7 +25,7 @@ const userToDelete = ref<User | null>(null);
 async function loadUsers() {
   loading.value = true;
   error.value = null;
-  const res = await apiFetch<User[]>("/api/users");
+  const res = await userService.getAll();
   loading.value = false;
   if (!res.ok) {
     error.value = res.error.message;
@@ -56,16 +52,9 @@ async function saveUser() {
   loading.value = true;
   error.value = null;
   
-  const url = isEditing.value ? `/api/users/${currentUserId.value}` : "/api/users";
-  const method = isEditing.value ? "PUT" : "POST";
-  
-  const res = await apiFetch<User>(url, {
-    method,
-    body: JSON.stringify(form.value),
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
+  const res = isEditing.value 
+    ? await userService.update(currentUserId.value!, form.value)
+    : await userService.create(form.value);
   
   loading.value = false;
   if (!res.ok) {
@@ -87,9 +76,7 @@ async function doDelete() {
   
   loading.value = true;
   error.value = null;
-  const res = await apiFetch<void>(`/api/users/${userToDelete.value.id}`, {
-    method: "DELETE",
-  });
+  const res = await userService.delete(userToDelete.value.id);
   
   loading.value = false;
   if (!res.ok) {
@@ -116,34 +103,28 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="page">
-    <section class="card">
-      <div class="table-header">
-        <div class="card__title" style="margin-bottom: 0">
-          Danh sách Người dùng
-          <span class="badge">{{ users.length }}</span>
-        </div>
+  <div class="customers-page">
+    <BaseCard title="Danh sách Người dùng" :subtitle="`Tổng số: ${users.length} người dùng`" noPadding>
+      <template #headerActions>
         <div class="header-actions">
-          <button class="btn btn--primary" @click="openAddModal">
-            + Thêm Người dùng
-          </button>
-          <button class="btn" :disabled="loading" @click="loadUsers">
-            ↻ Làm mới
-          </button>
+          <BaseButton variant="primary" @click="openAddModal">Thêm Người dùng</BaseButton>
+          <BaseButton variant="ghost" :loading="loading" @click="loadUsers">Làm mới</BaseButton>
         </div>
+      </template>
+
+      <div v-if="error" class="error-container">
+        <div class="error-msg">{{ error }}</div>
       </div>
 
-      <div v-if="error" class="error-msg">{{ error }}</div>
-
       <div class="table-wrap">
-        <table class="table">
+        <table class="data-table">
           <thead>
             <tr>
               <th>ID</th>
-              <th>Tên</th>
+              <th>Tên Người Dùng</th>
               <th>Email</th>
-              <th>Ngày tạo</th>
-              <th style="text-align: right">Thao tác</th>
+              <th>Ngày Tạo</th>
+              <th style="text-align: right">Thao Tác</th>
             </tr>
           </thead>
           <tbody>
@@ -157,213 +138,149 @@ onMounted(async () => {
               <td class="date-cell">{{ fmtDate(user.createdAt) }}</td>
               <td style="text-align: right">
                 <div class="row-actions">
-                  <button class="btn btn--small" @click="openEditModal(user)">Sửa</button>
-                  <button class="btn btn--small btn--danger" @click="confirmDelete(user)">Xóa</button>
+                  <BaseButton size="small" variant="ghost" @click="openEditModal(user)">Sửa</BaseButton>
+                  <BaseButton size="small" variant="danger" @click="confirmDelete(user)">Xóa</BaseButton>
                 </div>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-    </section>
+    </BaseCard>
 
     <!-- Form Modal -->
-    <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>{{ isEditing ? 'Cập nhật Người dùng' : 'Thêm Người dùng mới' }}</h3>
-          <button class="close-btn" @click="showModal = false">&times;</button>
+    <Teleport to="body">
+      <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>{{ isEditing ? 'Cập nhật Người dùng' : 'Thêm Người dùng mới' }}</h3>
+            <button class="close-btn" @click="showModal = false">&times;</button>
+          </div>
+          <form @submit.prevent="saveUser">
+            <div class="form-body">
+              <div class="form-group">
+                <label>Tên</label>
+                <input v-model="form.name" class="form-input" placeholder="Nhập tên người dùng..." required />
+              </div>
+              <div class="form-group">
+                <label>Email</label>
+                <input v-model="form.email" type="email" class="form-input" placeholder="Nhập email..." required />
+              </div>
+            </div>
+            <div class="modal-footer">
+              <BaseButton type="button" variant="ghost" @click="showModal = false">Hủy</BaseButton>
+              <BaseButton type="submit" variant="primary" :loading="loading">
+                {{ isEditing ? 'Cập nhật' : 'Thêm mới' }}
+              </BaseButton>
+            </div>
+          </form>
         </div>
-        <form @submit.prevent="saveUser">
-          <div class="form-group">
-            <label>Tên</label>
-            <input v-model="form.name" class="input" placeholder="Nhập tên người dùng..." required />
-          </div>
-          <div class="form-group">
-            <label>Email</label>
-            <input v-model="form.email" type="email" class="input" placeholder="Nhập email..." required />
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn" @click="showModal = false">Hủy</button>
-            <button type="submit" class="btn btn--primary" :disabled="loading">
-              {{ loading ? 'Đang lưu...' : (isEditing ? 'Cập nhật' : 'Thêm mới') }}
-            </button>
-          </div>
-        </form>
       </div>
-    </div>
+    </Teleport>
 
     <!-- Delete Confirmation Modal -->
-    <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>Xác nhận xóa</h3>
-          <button class="close-btn" @click="showDeleteConfirm = false">&times;</button>
-        </div>
-        <div class="modal-body">
-          <p>Bạn có chắc chắn muốn xóa người dùng <strong>{{ userToDelete?.name }}</strong>?</p>
-          <p class="warn-text">Hành động này không thể hoàn tác.</p>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn" @click="showDeleteConfirm = false">Hủy</button>
-          <button type="button" class="btn btn--danger" :disabled="loading" @click="doDelete">
-            {{ loading ? 'Đang xóa...' : 'Xóa ngay' }}
-          </button>
+    <Teleport to="body">
+      <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
+        <div class="modal-content modal-content--confirm">
+          <div class="modal-header">
+            <h3>Xác nhận xóa</h3>
+            <button class="close-btn" @click="showDeleteConfirm = false">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p>Bạn có chắc chắn muốn xóa người dùng <strong>{{ userToDelete?.name }}</strong>?</p>
+            <p class="warn-text">Hành động này không thể hoàn tác và sẽ xóa toàn bộ dữ liệu liên quan.</p>
+          </div>
+          <div class="modal-footer">
+            <BaseButton variant="ghost" @click="showDeleteConfirm = false">Hủy</BaseButton>
+            <BaseButton variant="danger" :loading="loading" @click="doDelete">Xóa ngay</BaseButton>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.customers-page {
+  animation: fadeIn 0.4s ease-out;
 }
 
-.card {
-  background: rgba(232, 236, 255, 0.03);
-  border: 1px solid rgba(232, 236, 255, 0.1);
-  border-radius: 16px;
-  padding: 18px 20px;
-}
-
-.card__title {
-  font-weight: 700;
-  font-size: 14px;
-  margin-bottom: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.table-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
-  gap: 12px;
-  flex-wrap: wrap;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .header-actions {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  gap: 10px;
 }
 
-.badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(232, 236, 255, 0.08);
-  border: 1px solid rgba(232, 236, 255, 0.12);
+.error-container {
+  padding: 20px 24px 0;
 }
 
-.btn {
-  padding: 8px 14px;
-  border-radius: 9px;
-  border: 1px solid rgba(232, 236, 255, 0.14);
-  background: rgba(232, 236, 255, 0.04);
-  color: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.12s;
-}
-
-.btn--primary {
-  background: rgba(96, 165, 250, 0.2);
-  border-color: rgba(96, 165, 250, 0.4);
-  color: #93c5fd;
-}
-
-.btn--primary:hover {
-  background: rgba(96, 165, 250, 0.3);
-}
-
-.btn--danger {
-  border-color: rgba(244, 114, 182, 0.4);
-  background: rgba(244, 114, 182, 0.07);
-  color: #f9a8d4;
-}
-
-.btn--danger:hover {
-  background: rgba(244, 114, 182, 0.14);
-}
-
-.btn--small {
-  padding: 4px 10px;
-  font-size: 11px;
-}
-
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.error-msg {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 .table-wrap {
   overflow-x: auto;
 }
 
-.table {
+.data-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
-.table th {
+.data-table th {
   text-align: left;
-  padding: 8px 12px;
+  padding: 14px 24px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.5;
-  border-bottom: 1px solid rgba(232, 236, 255, 0.1);
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.table td {
-  padding: 12px;
-  border-bottom: 1px solid rgba(232, 236, 255, 0.05);
-  vertical-align: middle;
+.data-table td {
+  padding: 14px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.data-table tr:hover td {
+  background: rgba(255, 255, 255, 0.01);
 }
 
 .row-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .mono {
-  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
   opacity: 0.7;
 }
 
 .date-cell {
+  color: #64748b;
   font-size: 12px;
-  opacity: 0.7;
-  white-space: nowrap;
 }
 
 .empty {
   text-align: center;
-  opacity: 0.4;
-  padding: 40px;
-}
-
-.error-msg {
-  margin-bottom: 16px;
-  padding: 10px;
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.2);
-  border-radius: 8px;
-  color: #f87171;
-  font-size: 13px;
+  padding: 60px !important;
+  color: #64748b;
+  font-style: italic;
 }
 
 /* Modal Styles */
@@ -373,89 +290,96 @@ onMounted(async () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 1000;
 }
 
-.modal {
-  background: #111827;
-  border: 1px solid rgba(232, 236, 255, 0.1);
-  border-radius: 16px;
-  width: min(400px, 90vw);
-  padding: 24px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+.modal-content {
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  width: min(440px, 90vw);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: modalEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes modalEnter {
+  from { opacity: 0; transform: scale(0.9) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
 }
 
 .modal-header h3 {
   margin: 0;
   font-size: 18px;
+  color: #f1f5f9;
 }
 
 .close-btn {
   background: none;
   border: none;
-  color: inherit;
+  color: #94a3b8;
   font-size: 24px;
   cursor: pointer;
-  opacity: 0.5;
+  transition: color 0.2s;
 }
 
-.modal-body {
-  margin-bottom: 20px;
-  font-size: 14px;
-  line-height: 1.5;
-}
+.close-btn:hover { color: #fff; }
 
-.warn-text {
-  color: #fbbf24;
-  font-size: 12px;
-  margin-top: 8px;
-}
+.form-body { padding: 24px; }
 
-.form-group {
-  margin-bottom: 16px;
-}
+.form-group { margin-bottom: 20px; }
 
 .form-group label {
   display: block;
   font-size: 12px;
   font-weight: 600;
-  margin-bottom: 6px;
-  opacity: 0.8;
+  margin-bottom: 8px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.input {
+.form-input {
   width: 100%;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(232, 236, 255, 0.13);
-  background: rgba(232, 236, 255, 0.04);
-  color: inherit;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #fff;
   font-size: 14px;
-  box-sizing: border-box;
+  transition: all 0.2s;
 }
 
-.input:focus {
+.form-input:focus {
   outline: none;
-  border-color: rgba(96, 165, 250, 0.5);
-  background: rgba(232, 236, 255, 0.07);
+  border-color: #3b82f6;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
 }
 
 .modal-footer {
+  padding: 16px 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 24px;
+  gap: 12px;
 }
+
+.modal-body { padding: 24px; font-size: 14px; color: #cbd5e1; line-height: 1.6; }
+
+.warn-text { color: #fbbf24; font-size: 13px; margin-top: 12px; font-weight: 500; }
 </style>

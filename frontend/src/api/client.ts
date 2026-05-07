@@ -1,24 +1,31 @@
 export type ApiError = {
   status: number
   message: string
-  body?: unknown
+  body?: any
 }
 
-function baseUrl() {
+export type ApiResponse<T> = 
+  | { ok: true; data: T } 
+  | { ok: false; error: ApiError }
+
+function getBaseUrl() {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined
   if (!raw) return ''
   return raw.replace(/\/+$/, '')
 }
 
+/**
+ * Enhanced fetch wrapper with timeout and error handling
+ */
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit & { timeoutMs?: number }
-): Promise<{ ok: true; data: T } | { ok: false; error: ApiError }> {
-  const url = `${baseUrl()}${path.startsWith('/') ? path : `/${path}`}`
+): Promise<ApiResponse<T>> {
+  const url = `${getBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`
 
   const controller = new AbortController()
   const timeoutMs = init?.timeoutMs
-  const timeout =
+  const timeoutId =
     typeof timeoutMs === 'number' && timeoutMs > 0
       ? window.setTimeout(() => controller.abort(), timeoutMs)
       : null
@@ -27,7 +34,7 @@ export async function apiFetch<T>(
     const res = await fetch(url, {
       ...init,
       headers: {
-        Accept: 'application/json',
+        'Accept': 'application/json',
         ...(init?.headers ?? {}),
       },
       signal: controller.signal,
@@ -42,7 +49,7 @@ export async function apiFetch<T>(
         ok: false,
         error: {
           status: res.status,
-          message: `HTTP ${res.status}`,
+          message: body?.message || `HTTP ${res.status}`,
           body,
         },
       }
@@ -50,15 +57,16 @@ export async function apiFetch<T>(
 
     return { ok: true, data: body as T }
   } catch (e: any) {
+    const isAbort = e?.name === 'AbortError'
     return {
       ok: false,
       error: {
         status: 0,
-        message: e?.name === 'AbortError' ? 'TIMEOUT' : (e?.message ?? 'NETWORK_ERROR'),
+        message: isAbort ? 'Yêu cầu quá hạn (Timeout)' : (e?.message ?? 'Lỗi kết nối mạng'),
       },
     }
   } finally {
-    if (timeout != null) window.clearTimeout(timeout)
+    if (timeoutId != null) window.clearTimeout(timeoutId)
   }
 }
 
@@ -68,4 +76,3 @@ export function jsonBody(body: unknown) {
     body: JSON.stringify(body),
   } as const
 }
-
