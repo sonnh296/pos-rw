@@ -31,7 +31,7 @@ public class NoLockRedisRewardService {
 			// Mỗi SUCCESS tăng giá trị expected (độc lập với race condition của RMW).
 			stringRedisTemplate.opsForValue().increment(EXPECTED_PREFIX + customerId, pointsToAdd);
 
-			TimeUnit.MILLISECONDS.sleep(50);
+			TimeUnit.MILLISECONDS.sleep(200);
 
 			// Cố tình thực hiện read-modify-write không atomic để minh họa hiện tượng race condition khi không dùng lock.
 			Object raw = stringRedisTemplate.opsForHash().get(HASH_KEY, customerId);

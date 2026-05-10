@@ -17,3 +17,5 @@ boost/rewards-batch/target/
 .vscode/
 
 boost/jmeter/results/
+
+loadtest/

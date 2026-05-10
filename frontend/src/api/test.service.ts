@@ -1,32 +1,29 @@
 import { apiFetch } from './client';
-import type { TestStatus, Phase1Result, Phase2Result } from '@/types';
 
 export const testService = {
-  async getStatus() {
-    return apiFetch<TestStatus>('/api/custom-tests/status');
-  },
-
-  async stop() {
-    return apiFetch<void>('/api/custom-tests/stop', { method: 'POST' });
-  },
-
   async clear() {
-    return apiFetch<void>('/api/custom-tests/clear', { method: 'POST' });
+    return apiFetch<void>('/api/test-results/csv', { method: 'DELETE' });
   },
 
-  async runPhase1(iterations = 5) {
-    return apiFetch<void>(`/api/custom-tests/run-phase1?iterations=${iterations}`, { method: 'POST' });
+  async getPhase1Csv(): Promise<{ ok: boolean; data?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/test-results/csv/phase1');
+      if (!res.ok) return { ok: false, error: 'Failed to fetch CSV' };
+      const text = await res.text();
+      return { ok: true, data: text };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
   },
 
-  async runPhase2(iterations = 5, totalRequests = 5000) {
-    return apiFetch<void>(`/api/custom-tests/run-phase2?iterations=${iterations}&totalRequestsPerIter=${totalRequests}`, { method: 'POST' });
-  },
-
-  async getPhase1Results() {
-    return apiFetch<Phase1Result>('/api/custom-tests/results/phase1');
-  },
-
-  async getPhase2Results() {
-    return apiFetch<Phase2Result>('/api/custom-tests/results/phase2');
+  async getPhase2Csv(): Promise<{ ok: boolean; data?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/test-results/csv/phase2');
+      if (!res.ok) return { ok: false, error: 'Failed to fetch CSV' };
+      const text = await res.text();
+      return { ok: true, data: text };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
   }
 };
