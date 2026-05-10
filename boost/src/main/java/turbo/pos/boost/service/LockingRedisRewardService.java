@@ -61,7 +61,7 @@ public class LockingRedisRewardService {
             }
 
             // simulate IO (DB/network)
-            TimeUnit.MILLISECONDS.sleep(50);
+            // TimeUnit.MILLISECONDS.sleep(50);
 
             // Idempotency quick-check in Redis (DB uniqueness is enforced by batch module)
             String idemKey = "idempotency:" + txnId;

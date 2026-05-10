@@ -2,7 +2,11 @@ import { apiFetch } from './client';
 
 export const testService = {
   async clear() {
-    return apiFetch<void>('/api/test-results/csv', { method: 'DELETE' });
+    try {
+      await fetch('/api/test-results/csv', { method: 'DELETE' });
+    } catch (e) {
+      console.error(e);
+    }
   },
 
   async getPhase1Csv(): Promise<{ ok: boolean; data?: string; error?: string }> {

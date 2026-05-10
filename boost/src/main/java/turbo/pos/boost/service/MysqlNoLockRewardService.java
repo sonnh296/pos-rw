@@ -37,7 +37,7 @@ public class MysqlNoLockRewardService {
 
 			long balance = rewardRepository.findBalanceByCustomerId(customerId).orElse(0L);
 
-			TimeUnit.MILLISECONDS.sleep(50);
+			// TimeUnit.MILLISECONDS.sleep(50);
 
 			try {
 				rewardRepository.insertLedgerEntry(customerId, txnId, amount, pointsDelta);
