@@ -45,7 +45,7 @@ public class MysqlLockingRewardService {
 						.build();
 			}
 
-			TimeUnit.MILLISECONDS.sleep(200);
+			TimeUnit.MILLISECONDS.sleep(50);
 
 			rewardRepository.ensureCustomerBalanceRecord(customerId);
 			Long balance = rewardRepository.findBalanceByCustomerIdForUpdate(customerId)
