@@ -1,44 +1,32 @@
 /**
- * K6 Script — Phase 2: Throughput Comparison (Platform vs Virtual Thread)
- * 
- * So sánh hiệu năng I/O-bound giữa Platform Thread pool (20 threads) và Virtual Thread.
- * Ramp từ 0 → 5000 VUs để quan sát điểm bão hòa (saturation point).
+ * K6 — Phase 2: Platform vs Virtual Thread throughput comparison.
  *
- * Kết quả real-time: xem trên Grafana dashboard (Prometheus data source).
+ * Ramp 0 → 5000 VUs. Platform test chạy trước, virtual test chạy sau.
+ * Xem kết quả real-time trên Grafana.
  *
  * Chạy:
  *   docker compose run k6 run -o experimental-prometheus-rw /scripts/phase2-throughput.js
- *
- * Hoặc local:
- *   k6 run --env BASE_URL=http://localhost:8080 \
- *     -o experimental-prometheus-rw \
- *     --env K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9090/api/v1/write \
- *     k6/scripts/phase2-throughput.js
  */
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
 
 const BASE_URL = __ENV.BASE_URL || 'http://boost:8080';
 
 export const options = {
     scenarios: {
-        // ── Platform Thread Test ──
-        // Ramp lên 5000 VUs → platform pool (20 threads) sẽ bão hòa → latency tăng vọt
         platform_ramp: {
             executor: 'ramping-vus',
             exec: 'platformTest',
             startVUs: 0,
             stages: [
-                { duration: '15s', target: 100 },     // Warm-up
-                { duration: '30s', target: 1000 },     // Ramp
-                { duration: '30s', target: 5000 },     // Peak load
-                { duration: '1m',  target: 5000 },     // Sustain
-                { duration: '15s', target: 0 },         // Cool down
+                { duration: '15s', target: 100 },
+                { duration: '30s', target: 1000 },
+                { duration: '30s', target: 5000 },
+                { duration: '1m',  target: 5000 },
+                { duration: '15s', target: 0 },
             ],
             tags: { thread_model: 'platform' },
         },
-        // ── Virtual Thread Test ──
-        // Chạy sau platform test, cùng load pattern để so sánh công bằng
         virtual_ramp: {
             executor: 'ramping-vus',
             exec: 'virtualTest',
@@ -50,7 +38,7 @@ export const options = {
                 { duration: '1m',  target: 5000 },
                 { duration: '15s', target: 0 },
             ],
-            startTime: '3m',  // Bắt đầu sau khi platform test hoàn tất
+            startTime: '3m',
             tags: { thread_model: 'virtual' },
         },
     },
@@ -71,9 +59,7 @@ export function platformTest() {
             tags: { thread_model: 'platform' },
         }
     );
-    check(res, {
-        'platform: status 200': (r) => r.status === 200,
-    });
+    check(res, { 'platform 200': (r) => r.status === 200 });
 }
 
 export function virtualTest() {
@@ -85,7 +71,5 @@ export function virtualTest() {
             tags: { thread_model: 'virtual' },
         }
     );
-    check(res, {
-        'virtual: status 200': (r) => r.status === 200,
-    });
+    check(res, { 'virtual 200': (r) => r.status === 200 });
 }

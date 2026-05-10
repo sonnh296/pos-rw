@@ -1,11 +1,12 @@
 package turbo.pos.boost.controller;
 
 import io.micrometer.core.annotation.Timed;
+
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.DeferredResult;
 import turbo.pos.boost.dto.ConsistencyReportResponse;
 import turbo.pos.boost.dto.CustomerPointsResponse;
 import turbo.pos.boost.dto.RewardResponse;
@@ -24,7 +26,6 @@ import turbo.pos.boost.service.ThreadModelBenchmarkService;
 
 @RestController
 @RequestMapping("/api/rewards")
-@RequiredArgsConstructor
 public class RewardController {
 
 	private final NoLockRewardService noLockRewardService;
@@ -32,61 +33,83 @@ public class RewardController {
 	private final RewardBalanceQueryService rewardBalanceQueryService;
 	private final ThreadModelBenchmarkService threadModelBenchmarkService;
 
+	private final ExecutorService singleExecutor;
+	private final ExecutorService platformExecutor;
+	private final ExecutorService virtualExecutor;
+
+	public RewardController(
+			NoLockRewardService noLockRewardService,
+			LockingRewardService lockingRewardService,
+			RewardBalanceQueryService rewardBalanceQueryService,
+			ThreadModelBenchmarkService threadModelBenchmarkService,
+			@Qualifier("singleExecutor") ExecutorService singleExecutor,
+			@Qualifier("platformExecutor") ExecutorService platformExecutor,
+			@Qualifier("virtualExecutor") ExecutorService virtualExecutor) {
+		this.noLockRewardService = noLockRewardService;
+		this.lockingRewardService = lockingRewardService;
+		this.rewardBalanceQueryService = rewardBalanceQueryService;
+		this.threadModelBenchmarkService = threadModelBenchmarkService;
+		this.singleExecutor = singleExecutor;
+		this.platformExecutor = platformExecutor;
+		this.virtualExecutor = virtualExecutor;
+	}
+
+	// ── Single thread ──
+
 	@PostMapping("/single/no-lock")
-	@Async("singleExecutor")
-	public CompletableFuture<RewardResponse> singleNoLock(@RequestBody TransactionRequest request) {
-		return CompletableFuture.completedFuture(noLockRewardService.processReward(request));
+	public DeferredResult<RewardResponse> singleNoLock(@RequestBody TransactionRequest request) {
+		return submit(singleExecutor, () -> noLockRewardService.processReward(request));
 	}
 
 	@PostMapping("/single/lock")
-	@Async("singleExecutor")
-	public CompletableFuture<RewardResponse> singleLock(@RequestBody TransactionRequest request) {
-		return CompletableFuture.completedFuture(lockingRewardService.processReward(request));
+	public DeferredResult<RewardResponse> singleLock(@RequestBody TransactionRequest request) {
+		return submit(singleExecutor, () -> lockingRewardService.processReward(request));
 	}
 
+	// ── Platform thread pool (fixed, default 200) ──
+
 	@PostMapping("/platform/no-lock")
-	@Async("platformExecutor")
-	public CompletableFuture<RewardResponse> platformNoLock(@RequestBody TransactionRequest request) {
-		return CompletableFuture.completedFuture(noLockRewardService.processReward(request));
+	public DeferredResult<RewardResponse> platformNoLock(@RequestBody TransactionRequest request) {
+		return submit(platformExecutor, () -> noLockRewardService.processReward(request));
 	}
 
 	@PostMapping("/platform/lock")
-	@Async("platformExecutor")
-	public CompletableFuture<RewardResponse> platformLock(@RequestBody TransactionRequest request) {
-		return CompletableFuture.completedFuture(lockingRewardService.processReward(request));
+	public DeferredResult<RewardResponse> platformLock(@RequestBody TransactionRequest request) {
+		return submit(platformExecutor, () -> lockingRewardService.processReward(request));
 	}
 
+	// ── Virtual thread (per-task, unbounded) ──
+
 	@PostMapping("/virtual/no-lock")
-	@Async("virtualExecutor")
-	public CompletableFuture<RewardResponse> virtualNoLock(@RequestBody TransactionRequest request) {
-		return CompletableFuture.completedFuture(noLockRewardService.processReward(request));
+	public DeferredResult<RewardResponse> virtualNoLock(@RequestBody TransactionRequest request) {
+		return submit(virtualExecutor, () -> noLockRewardService.processReward(request));
 	}
 
 	@PostMapping("/virtual/lock")
-	@Async("virtualExecutor")
-	public CompletableFuture<RewardResponse> virtualLock(@RequestBody TransactionRequest request) {
-		return CompletableFuture.completedFuture(lockingRewardService.processReward(request));
+	public DeferredResult<RewardResponse> virtualLock(@RequestBody TransactionRequest request) {
+		return submit(virtualExecutor, () -> lockingRewardService.processReward(request));
 	}
 
+	// ── Benchmark (I/O-bound, sleep 50ms) ──
+
 	@PostMapping("/bench/single/io")
-	@Async("singleExecutor")
-	public CompletableFuture<RewardResponse> benchmarkSingleIo(@RequestBody(required = false) TransactionRequest request) {
-		return CompletableFuture.completedFuture(threadModelBenchmarkService.processIoBoundTask(request));
+	public DeferredResult<RewardResponse> benchmarkSingleIo(@RequestBody(required = false) TransactionRequest request) {
+		return submit(singleExecutor, () -> threadModelBenchmarkService.processIoBoundTask(request));
 	}
 
 	@PostMapping("/bench/platform/io")
-	@Async("platformExecutor")
 	@Timed(value = "benchmark.io", extraTags = {"thread_model", "platform"}, percentiles = {0.5, 0.95, 0.99})
-	public CompletableFuture<RewardResponse> benchmarkPlatformIo(@RequestBody(required = false) TransactionRequest request) {
-		return CompletableFuture.completedFuture(threadModelBenchmarkService.processIoBoundTask(request));
+	public DeferredResult<RewardResponse> benchmarkPlatformIo(@RequestBody(required = false) TransactionRequest request) {
+		return submit(platformExecutor, () -> threadModelBenchmarkService.processIoBoundTask(request));
 	}
 
 	@PostMapping("/bench/virtual/io")
-	@Async("virtualExecutor")
 	@Timed(value = "benchmark.io", extraTags = {"thread_model", "virtual"}, percentiles = {0.5, 0.95, 0.99})
-	public CompletableFuture<RewardResponse> benchmarkVirtualIo(@RequestBody(required = false) TransactionRequest request) {
-		return CompletableFuture.completedFuture(threadModelBenchmarkService.processIoBoundTask(request));
+	public DeferredResult<RewardResponse> benchmarkVirtualIo(@RequestBody(required = false) TransactionRequest request) {
+		return submit(virtualExecutor, () -> threadModelBenchmarkService.processIoBoundTask(request));
 	}
+
+	// ── Query / Admin ──
 
 	@GetMapping("/points/{customerId}")
 	public CustomerPointsResponse getPoints(@PathVariable String customerId) {
@@ -119,5 +142,23 @@ public class RewardController {
 	@GetMapping("/consistency/global")
 	public ConsistencyReportResponse globalConsistency() {
 		return rewardBalanceQueryService.globalConsistencyReport();
+	}
+
+	// ── Helper ──
+
+	/**
+	 * Submit task vào executor cụ thể, trả DeferredResult cho Tomcat.
+	 * Thread nào chạy task phụ thuộc hoàn toàn vào executor được truyền vào.
+	 */
+	private DeferredResult<RewardResponse> submit(ExecutorService executor, java.util.concurrent.Callable<RewardResponse> task) {
+		DeferredResult<RewardResponse> result = new DeferredResult<>(30_000L);
+		executor.submit(() -> {
+			try {
+				result.setResult(task.call());
+			} catch (Exception e) {
+				result.setErrorResult(e);
+			}
+		});
+		return result;
 	}
 }

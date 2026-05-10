@@ -59,6 +59,13 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       JAVA_OPTS: "-XX:MaxRAMPercentage=75.0"
+    volumes:
+      - ./k6/scripts:/scripts:ro
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
 
   rewards-batch:
     build: ./rewards-batch
