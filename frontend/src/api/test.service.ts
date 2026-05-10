@@ -1,14 +1,5 @@
-import { apiFetch, jsonBody } from './client';
+import { apiFetch } from './client';
 import type { Phase1IterationResult, Phase1GroupSummary } from '@/types';
-
-/**
- * Phase 1 Accuracy Test — chạy hoàn toàn từ Frontend.
- *
- * Flow: Frontend gửi HTTP request → Backend API → @Async(executor) → Service → Redis/MySQL
- * Frontend tự verify expected vs actual points.
- *
- * Không có backend test logic nào cả — backend chỉ là hệ thống bị test (SUT).
- */
 
 const EXECUTORS = ['SINGLE', 'PLATFORM', 'VIRTUAL'] as const;
 const MODES = ['LOCK', 'NO_LOCK'] as const;
@@ -29,50 +20,61 @@ export interface Phase1TestState {
   summary: Record<string, Phase1GroupSummary>;
 }
 
-/** Build API path: PLATFORM + NO_LOCK → /api/rewards/platform/no-lock */
-function buildApiPath(executor: Executor, mode: Mode): string {
-  const execLower = executor.toLowerCase();
-  const modeLower = mode.toLowerCase().replace('_', '-');
-  return `/api/rewards/${execLower}/${modeLower}`;
+function getBaseUrl() {
+  const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (!raw) return '';
+  return raw.replace(/\/+$/, '');
 }
 
-/** Gửi N request đồng thời cho cùng 1 customerId, return duration */
+function buildApiPath(executor: Executor, mode: Mode): string {
+  const base = getBaseUrl();
+  const path = `/api/rewards/${executor.toLowerCase()}/${mode.toLowerCase().replace('_', '-')}`;
+  return `${base}${path}`;
+}
+
+/**
+ * Gửi N request đồng thời. 
+ * QUAN TRỌNG: Phải có transactionId duy nhất cho mỗi request để tránh Idempotency check ở Backend.
+ */
 async function sendConcurrentRequests(
-  apiPath: string,
+  fullUrl: string,
   customerId: string,
   amount: number,
   count: number
 ): Promise<{ durationMs: number; allOk: boolean }> {
   const start = performance.now();
-  const payload = { customerId, amount };
-
-  const promises = Array.from({ length: count }, () =>
-    fetch(apiPath, {
+  
+  const promises = Array.from({ length: count }, (_, i) => {
+    const payload = { 
+      customerId, 
+      amount, 
+      transactionId: `txn-${customerId}-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5)}` 
+    };
+    
+    return fetch(fullUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload),
-    })
-  );
+    });
+  });
 
   const results = await Promise.allSettled(promises);
-  const allOk = results.every(
-    r => r.status === 'fulfilled' && r.value.ok
-  );
+  const allOk = results.every(r => r.status === 'fulfilled' && r.value.ok);
   const durationMs = Math.round(performance.now() - start);
 
   return { durationMs, allOk };
 }
 
-/** Query actual points cho 1 customerId */
 async function getActualPoints(customerId: string): Promise<number> {
   const res = await apiFetch<{ primaryPoints: number }>(
     `/api/rewards/points/${customerId}`
   );
-  if (res.ok) return res.data.primaryPoints ?? 0;
-  return 0;
+  return res.ok ? (res.data.primaryPoints ?? 0) : 0;
 }
 
-/** Tính summary từ raw results */
 function computeSummary(
   results: Phase1IterationResult[]
 ): Record<string, Phase1GroupSummary> {
@@ -81,9 +83,7 @@ function computeSummary(
   for (const exec of EXECUTORS) {
     for (const mode of MODES) {
       const key = `${exec}_${mode}`;
-      const filtered = results.filter(
-        r => r.executor === exec && r.mode === mode
-      );
+      const filtered = results.filter(r => r.executor === exec && r.mode === mode);
       const accurate = filtered.filter(r => r.isAccurate).length;
       const total = filtered.length;
 
@@ -101,15 +101,6 @@ function computeSummary(
   return summary;
 }
 
-/**
- * Chạy Phase 1 accuracy test.
- * Gọi API trực tiếp từ browser — đi qua full HTTP stack.
- *
- * @param iterations Số lần lặp cho mỗi combo executor+mode
- * @param onProgress Callback cập nhật tiến trình
- * @param shouldStop Hàm kiểm tra dừng sớm
- * @returns Kết quả test
- */
 export async function runPhase1Test(
   iterations: number,
   onProgress: (p: Phase1Progress) => void,
@@ -121,7 +112,7 @@ export async function runPhase1Test(
 
   for (const executor of EXECUTORS) {
     for (const mode of MODES) {
-      const apiPath = buildApiPath(executor, mode);
+      const fullUrl = buildApiPath(executor, mode);
 
       for (let i = 1; i <= iterations; i++) {
         if (shouldStop()) {
@@ -137,18 +128,16 @@ export async function runPhase1Test(
         });
 
         const customerId = `fe-${executor.toLowerCase()}-${mode.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const amount = Math.round((Math.random() * 90 + 10) * 100) / 100;
+        const amount = 10.0; // Dùng số cố định để dễ debug
         const expectedPoints = Math.round(amount * 10) * CONCURRENT_REQUESTS;
 
-        // Gửi 5 request đồng thời đến API endpoint
         const { durationMs } = await sendConcurrentRequests(
-          apiPath, customerId, amount, CONCURRENT_REQUESTS
+          fullUrl, customerId, amount, CONCURRENT_REQUESTS
         );
 
-        // Chờ async processing hoàn tất
-        await new Promise(r => setTimeout(r, 300));
+        // Chờ 1 giây để backend xử lý xong outbox/batch
+        await new Promise(r => setTimeout(r, 1000));
 
-        // Query actual points
         const actualPoints = await getActualPoints(customerId);
 
         results.push({
@@ -169,9 +158,6 @@ export async function runPhase1Test(
   return { results, summary: computeSummary(results) };
 }
 
-/**
- * Clear reward data (để reset trước khi test mới).
- */
 export async function clearRewardData() {
   return apiFetch<void>('/api/rewards/points/clear', { method: 'POST' });
 }

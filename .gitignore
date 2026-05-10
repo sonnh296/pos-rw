@@ -25,3 +25,6 @@ grafana-data/
 *.jmx
 jmeter.log
 html-report/
+
+# Local deployment guide
+boost/DEPLOY_K6.md

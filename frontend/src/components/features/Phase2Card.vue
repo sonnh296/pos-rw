@@ -1,346 +1,310 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { apiFetch } from '@/api/client';
 import BaseCard from '@/components/ui/BaseCard.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 
-const grafanaUrl = ref('http://localhost:3000/d/thread-comparison');
-const copied = ref('');
+const isRunning = ref(false);
+const logs = ref<string[]>([]);
+const summary = ref<any>(null);
+const grafanaUrl = 'http://localhost:3000/d/thread-comparison';
 
-function copyCommand(cmd: string) {
-  navigator.clipboard.writeText(cmd);
-  copied.value = cmd;
-  setTimeout(() => copied.value = '', 2000);
+let pollInterval: any = null;
+
+async function fetchStatus() {
+  const res = await apiFetch<{ running: boolean }>('/api/k6/status');
+  if (res.ok) {
+    const wasRunning = isRunning.value;
+    isRunning.value = res.data.running;
+    
+    if (isRunning.value) {
+      fetchLogs();
+    } else if (wasRunning) {
+      // Test just finished, fetch summary
+      fetchSummary();
+    }
+  }
 }
 
+async function fetchLogs() {
+  const res = await apiFetch<string[]>('/api/k6/logs');
+  if (res.ok) {
+    logs.value = res.data;
+    nextTick(() => {
+      const term = document.getElementById('k6-terminal');
+      if (term) term.scrollTop = term.scrollHeight;
+    });
+  }
+}
+
+async function fetchSummary() {
+  const res = await apiFetch<any>('/api/k6/summary');
+  if (res.ok && res.data) {
+    summary.value = res.data;
+  }
+}
+
+async function runBurstTest() {
+  if (isRunning.value) return;
+  logs.value = ['Initializing Burst Test (2000 VUs)...'];
+  summary.value = null;
+  const res = await apiFetch('/api/k6/run', {
+    method: 'POST',
+    body: JSON.stringify({ script: 'phase2-burst.js' })
+  });
+  if (res.ok) {
+    isRunning.value = true;
+  }
+}
+
+async function stopTest() {
+  await apiFetch('/api/k6/stop', { method: 'POST' });
+  fetchStatus();
+}
+
+onMounted(() => {
+  fetchStatus();
+  fetchSummary(); // Check if there's an existing summary
+  pollInterval = setInterval(fetchStatus, 2000);
+});
+
+onUnmounted(() => {
+  if (pollInterval) clearInterval(pollInterval);
+});
+
 function openGrafana() {
-  window.open(grafanaUrl.value, '_blank');
+  window.open(grafanaUrl, '_blank');
 }
 </script>
 
 <template>
   <BaseCard 
-    title="Giai Đoạn 2: Hiệu Năng (Platform vs Virtual Thread)"
-    subtitle="Dùng K6 để gửi tới 5000 request đồng thời. Theo dõi kết quả real-time trên Grafana dashboard."
+    class="k6-dashboard-card"
+    title="Giai Đoạn 2: Burst Load Test (2000 VUs)"
+    subtitle="Ném đồng thời 2000 người dùng ảo để so sánh trực tiếp Platform vs Virtual Thread."
   >
     <template #headerActions>
-      <div class="card-actions">
-        <BaseButton variant="primary" size="small" @click="openGrafana">
-          Mở Grafana
-        </BaseButton>
-      </div>
+      <BaseButton variant="ghost" size="small" @click="openGrafana" icon="external-link">
+        Grafana Monitoring
+      </BaseButton>
     </template>
 
-    <div class="k6-guide">
-      <!-- Architecture Info -->
-      <div class="info-section">
-        <h4>Kiến trúc mới</h4>
-        <div class="arch-flow">
-          <div class="flow-item">
-            <div class="flow-icon">K6</div>
-            <span>Load Generator</span>
-          </div>
-          <div class="flow-arrow">→</div>
-          <div class="flow-item">
-            <div class="flow-icon api">API</div>
-            <span>Spring Boot</span>
-          </div>
-          <div class="flow-arrow">→</div>
-          <div class="flow-item">
-            <div class="flow-icon prom">P</div>
-            <span>Prometheus</span>
-          </div>
-          <div class="flow-arrow">→</div>
-          <div class="flow-item">
-            <div class="flow-icon graf">G</div>
-            <span>Grafana</span>
-          </div>
+    <div class="dashboard-content">
+      <!-- Test Description -->
+      <div class="test-info">
+        <div class="info-item">
+          <span class="label">Người dùng ảo:</span>
+          <span class="value highlight">2,000 VUs</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Mô hình:</span>
+          <span class="value">Platform vs Virtual</span>
+        </div>
+        <div class="info-item">
+          <span class="label">Loại tải:</span>
+          <span class="value">Constant Load (Burst)</span>
         </div>
       </div>
 
-      <!-- Commands -->
-      <div class="commands-section">
-        <h4>Chạy Performance Test</h4>
-        
-        <div class="command-block">
-          <div class="command-label">
-            <span class="tag platform">Platform vs Virtual</span>
-            <span class="desc">5000 VUs, ramp-up, so sánh throughput + latency</span>
+      <!-- Result Summary (Hidden while running) -->
+      <Transition name="fade">
+        <div v-if="summary && !isRunning" class="result-summary-card">
+          <div class="summary-header">
+            <h4>🏆 Kết quả kiểm thử gần nhất</h4>
+            <span class="total-reqs">Tổng request: {{ summary.total_requests.toLocaleString() }}</span>
           </div>
-          <div class="command-line" @click="copyCommand('docker compose run k6 run -o experimental-prometheus-rw /scripts/phase2-throughput.js')">
-            <code>docker compose run k6 run -o experimental-prometheus-rw /scripts/phase2-throughput.js</code>
-            <span class="copy-hint">{{ copied === 'docker compose run k6 run -o experimental-prometheus-rw /scripts/phase2-throughput.js' ? '✓ Copied' : 'Click to copy' }}</span>
-          </div>
-        </div>
+          
+          <div class="comparison-grid">
+            <!-- Platform Results -->
+            <div class="result-col platform">
+              <div class="col-head">Platform Threads</div>
+              <div class="metric">
+                <span class="m-val">{{ Math.round(summary.platform.rps) }}</span>
+                <span class="m-lbl">RPS (Throughput)</span>
+              </div>
+              <div class="metric">
+                <span class="m-val">{{ Math.round(summary.platform.p95) }}ms</span>
+                <span class="m-lbl">P95 Latency</span>
+              </div>
+            </div>
 
-        <div class="command-block">
-          <div class="command-label">
-            <span class="tag accuracy">Accuracy Test</span>
-            <span class="desc">Kiểm tra data consistency dưới concurrency</span>
+            <div class="vs-divider">VS</div>
+
+            <!-- Virtual Results -->
+            <div class="result-col virtual">
+              <div class="col-head">Virtual Threads</div>
+              <div class="metric">
+                <span class="m-val">{{ Math.round(summary.virtual.rps) }}</span>
+                <span class="m-lbl">RPS (Throughput)</span>
+              </div>
+              <div class="metric">
+                <span class="m-val">{{ Math.round(summary.virtual.p95) }}ms</span>
+                <span class="m-lbl">P95 Latency</span>
+              </div>
+            </div>
           </div>
-          <div class="command-line" @click="copyCommand('docker compose run k6 run -o experimental-prometheus-rw /scripts/phase1-accuracy.js')">
-            <code>docker compose run k6 run -o experimental-prometheus-rw /scripts/phase1-accuracy.js</code>
-            <span class="copy-hint">{{ copied === 'docker compose run k6 run -o experimental-prometheus-rw /scripts/phase1-accuracy.js' ? '✓ Copied' : 'Click to copy' }}</span>
+
+          <div class="insight">
+            💡 <strong>Nhận xét:</strong> 
+            {{ summary.virtual.rps > summary.platform.rps * 1.5 ? 'Virtual Threads cho thấy hiệu năng vượt trội khi xử lý tải Burst.' : 'Cả hai mô hình đều xử lý tốt mức tải này.' }}
           </div>
         </div>
+      </Transition>
+
+      <!-- Action -->
+      <div class="main-action">
+        <BaseButton 
+          v-if="!isRunning" 
+          variant="primary" 
+          size="large"
+          @click="runBurstTest" 
+          class="burst-btn"
+        >
+          🚀 {{ summary ? 'Chạy lại Burst Test' : 'Bắt đầu Burst Test (2000 VUs)' }}
+        </BaseButton>
+        <BaseButton 
+          v-else 
+          variant="danger" 
+          size="large"
+          @click="stopTest" 
+          class="stop-btn"
+        >
+          🛑 Dừng Kiểm Thử
+        </BaseButton>
       </div>
 
-      <!-- Grafana Panels -->
-      <div class="metrics-preview">
-        <h4>Metrics trên Grafana Dashboard</h4>
-        <div class="metrics-grid">
-          <div class="metric-item">
-            <div class="metric-icon">📈</div>
-            <div class="metric-info">
-              <strong>Request Rate</strong>
-              <span>Platform vs Virtual req/s</span>
-            </div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-icon">⏱</div>
-            <div class="metric-info">
-              <strong>P95 Latency</strong>
-              <span>Response time comparison</span>
-            </div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-icon">🧵</div>
-            <div class="metric-info">
-              <strong>JVM Threads</strong>
-              <span>Live + Peak thread count</span>
-            </div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-icon">💾</div>
-            <div class="metric-info">
-              <strong>Memory & CPU</strong>
-              <span>Heap usage, CPU, GC pauses</span>
-            </div>
+      <!-- Live Terminal -->
+      <div class="monitor-area">
+        <div class="terminal-header">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <div class="title">k6-burst-output.log</div>
+          <div class="status-badge" :class="{ 'active': isRunning }">
+            {{ isRunning ? 'TESTING' : 'READY' }}
           </div>
         </div>
-      </div>
-
-      <!-- Links -->
-      <div class="links-section">
-        <a :href="grafanaUrl" target="_blank" class="link-card grafana-link">
-          <span class="link-icon">📊</span>
-          <div>
-            <strong>Grafana Dashboard</strong>
-            <span>{{ grafanaUrl }}</span>
+        <div id="k6-terminal" class="terminal-body">
+          <div v-for="(log, idx) in logs" :key="idx" class="log-line">
+            <span class="ln">{{ idx + 1 }}</span>
+            <span class="txt">{{ log }}</span>
           </div>
-        </a>
-        <a href="http://localhost:9090" target="_blank" class="link-card prom-link">
-          <span class="link-icon">🔍</span>
-          <div>
-            <strong>Prometheus UI</strong>
-            <span>http://localhost:9090</span>
+          <div v-if="logs.length === 0" class="empty-term">
+            Sẵn sàng để ném 2000 VUs...
           </div>
-        </a>
+        </div>
       </div>
     </div>
   </BaseCard>
 </template>
 
 <style scoped>
-.card-actions { display: flex; gap: 8px; }
-
-.k6-guide {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-/* Architecture Flow */
-.info-section h4,
-.commands-section h4,
-.metrics-preview h4 {
-  margin: 0 0 16px;
-  font-size: 13px;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.arch-flow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 20px;
-  background: rgba(255, 255, 255, 0.02);
+.k6-dashboard-card {
+  background: linear-gradient(165deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6));
   border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dashboard-content { display: flex; flex-direction: column; gap: 24px; }
+
+.test-info {
+  display: flex;
+  justify-content: space-around;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 16px;
   border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.flow-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+.info-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.info-item .label { font-size: 10px; text-transform: uppercase; color: #64748b; }
+.info-item .value { font-size: 14px; font-weight: 700; color: #f1f5f9; }
+.info-item .value.highlight { color: #38bdf8; }
+
+/* Result Summary Card */
+.result-summary-card {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(139, 92, 246, 0.1));
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 16px;
+  padding: 24px;
 }
 
-.flow-item span {
-  font-size: 10px;
-  color: #64748b;
-}
-
-.flow-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 13px;
-  background: linear-gradient(135deg, #7c3aed, #6d28d9);
-  color: #fff;
-}
-
-.flow-icon.api { background: linear-gradient(135deg, #3b82f6, #2563eb); }
-.flow-icon.prom { background: linear-gradient(135deg, #f59e0b, #d97706); }
-.flow-icon.graf { background: linear-gradient(135deg, #ec4899, #db2777); }
-
-.flow-arrow {
-  font-size: 18px;
-  color: #475569;
-  font-weight: 700;
-}
-
-/* Commands */
-.command-block {
-  margin-bottom: 12px;
-}
-
-.command-label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.tag {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 3px 8px;
-  border-radius: 4px;
-}
-
-.tag.platform { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
-.tag.accuracy { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-
-.command-label .desc {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.command-line {
+.summary-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: all 0.2s;
+  margin-bottom: 20px;
 }
 
-.command-line:hover {
-  border-color: rgba(139, 92, 246, 0.4);
-  background: rgba(0, 0, 0, 0.4);
-}
+.summary-header h4 { margin: 0; font-size: 16px; color: #f1f5f9; }
+.total-reqs { font-size: 11px; color: #64748b; }
 
-.command-line code {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 11px;
-  color: #e2e8f0;
-  word-break: break-all;
-}
-
-.copy-hint {
-  font-size: 10px;
-  color: #64748b;
-  white-space: nowrap;
-  margin-left: 12px;
-}
-
-/* Metrics Preview */
-.metrics-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.metric-item {
+.comparison-grid {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.result-col {
+  flex: 1;
+  text-align: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
 }
 
-.metric-icon { font-size: 20px; }
-
-.metric-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.metric-info strong {
+.col-head {
   font-size: 12px;
-  color: #f1f5f9;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #94a3b8;
 }
 
-.metric-info span {
-  font-size: 10px;
-  color: #64748b;
+.result-col.platform .col-head { color: #f59e0b; }
+.result-col.virtual .col-head { color: #10b981; }
+
+.metric { display: flex; flex-direction: column; margin-bottom: 12px; }
+.metric:last-child { margin-bottom: 0; }
+.m-val { font-size: 20px; font-weight: 800; color: #fff; }
+.m-lbl { font-size: 9px; text-transform: uppercase; color: #64748b; }
+
+.vs-divider {
+  font-weight: 900;
+  font-style: italic;
+  color: #475569;
+  font-size: 18px;
 }
 
-/* Links */
-.links-section {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+.insight {
+  font-size: 12px;
+  color: #94a3b8;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: center;
 }
 
-.link-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  text-decoration: none;
-  transition: all 0.2s;
-}
+.main-action { display: flex; justify-content: center; }
+.burst-btn { width: 100%; max-width: 400px; height: 54px; font-weight: 800; }
 
-.link-card:hover {
-  border-color: rgba(139, 92, 246, 0.3);
-  background: rgba(255, 255, 255, 0.04);
-  transform: translateY(-1px);
-}
+/* Terminal */
+.monitor-area { background: #0f172a; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.05); }
+.terminal-header { background: #1e293b; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; }
+.dots { display: flex; gap: 6px; }
+.dots span { width: 10px; height: 10px; border-radius: 50%; background: #334155; }
+.dots span:nth-child(1) { background: #ef4444; }
+.dots span:nth-child(2) { background: #f59e0b; }
+.dots span:nth-child(3) { background: #10b981; }
+.terminal-header .title { font-size: 11px; font-family: monospace; color: #94a3b8; }
+.status-badge { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 4px; color: #64748b; background: rgba(255, 255, 255, 0.05); }
+.status-badge.active { background: rgba(56, 189, 248, 0.1); color: #38bdf8; animation: pulse 2s infinite; }
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
-.link-icon { font-size: 24px; }
+.terminal-body { height: 180px; overflow-y: auto; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; }
+.log-line { display: flex; gap: 12px; }
+.log-line .ln { color: #334155; min-width: 24px; text-align: right; }
+.log-line .txt { color: #e2e8f0; white-space: pre-wrap; }
+.empty-term { height: 100%; display: flex; align-items: center; justify-content: center; color: #475569; font-style: italic; }
 
-.link-card strong {
-  display: block;
-  font-size: 13px;
-  color: #f1f5f9;
-}
-
-.link-card span {
-  font-size: 11px;
-  color: #64748b;
-}
-
-@media (max-width: 800px) {
-  .arch-flow { flex-wrap: wrap; }
-  .metrics-grid { grid-template-columns: 1fr; }
-  .links-section { grid-template-columns: 1fr; }
-}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.5s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

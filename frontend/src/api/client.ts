@@ -35,6 +35,7 @@ export async function apiFetch<T>(
       ...init,
       headers: {
         'Accept': 'application/json',
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
         ...(init?.headers ?? {}),
       },
       signal: controller.signal,
