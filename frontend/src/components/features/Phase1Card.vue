@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { onMounted, watch, nextTick } from 'vue';
 import { Chart, registerables } from 'chart.js';
-import type { Phase1Result } from '@/types';
+import type { Phase1GroupSummary } from '@/types';
 import BaseCard from '@/components/ui/BaseCard.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 
 Chart.register(...registerables);
 
 const props = defineProps<{
-  summary: Phase1Result['summary'] | null;
+  summary: Record<string, Phase1GroupSummary> | null;
   isRunning: boolean;
 }>();
 
-defineEmits(['run', 'refresh']);
+defineEmits(['run']);
 
 let charts: Record<string, Chart> = {};
 
@@ -35,7 +35,7 @@ function drawCharts() {
     for (const mode of modes) {
       const key = `${exec}_${mode}`;
       const stats = props.summary[key];
-      if (!stats) continue;
+      if (!stats || stats.total === 0) continue;
 
       const canvasId = `p1_pie_${key}`;
       const ctx = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -84,12 +84,11 @@ onMounted(() => {
 <template>
   <BaseCard 
     title="Giai Đoạn 1: Độ Chính Xác (Khóa vs Không Khóa)"
-    subtitle="Lặp lại 5 lần cho mỗi mô hình Thread. Kiểm chứng độ chính xác khi đối soát giao dịch đồng thời."
+    subtitle="Frontend gọi API trực tiếp — 5 request đồng thời cho mỗi executor/mode. Kiểm chứng data consistency."
   >
     <template #headerActions>
       <div class="card-actions">
         <BaseButton variant="primary" size="small" @click="$emit('run')" :disabled="isRunning">Chạy Test</BaseButton>
-        <BaseButton variant="ghost" size="small" @click="$emit('refresh')">Làm Mới</BaseButton>
       </div>
     </template>
 
@@ -102,16 +101,16 @@ onMounted(() => {
             <div class="canvas-container">
               <canvas :id="'p1_pie_' + exec + '_' + mode"></canvas>
             </div>
-            <div v-if="summary[`${exec}_${mode}`]" class="metrics-overlay">
-              <div class="accuracy-val">{{ Math.round((summary[`${exec}_${mode}`].accurate / summary[`${exec}_${mode}`].total) * 100) }}%</div>
-              <div class="duration-val">{{ Math.round(summary[`${exec}_${mode}`].avgDuration) }}ms</div>
+            <div v-if="summary[`${exec}_${mode}`] && summary[`${exec}_${mode}`].total > 0" class="metrics-overlay">
+              <div class="accuracy-val">{{ Math.round(summary[`${exec}_${mode}`].percent) }}%</div>
+              <div class="duration-val">{{ summary[`${exec}_${mode}`].avgDuration }}ms</div>
             </div>
           </div>
         </div>
       </div>
     </div>
     <div v-else class="empty-state">
-      <p>Chưa có dữ liệu. Hãy chạy kiểm thử để bắt đầu.</p>
+      <p>Chưa có dữ liệu. Nhấn "Chạy Test" để gửi request trực tiếp đến API.</p>
     </div>
   </BaseCard>
 </template>

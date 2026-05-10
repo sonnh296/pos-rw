@@ -1,5 +1,6 @@
 package turbo.pos.boost.controller;
 
+import io.micrometer.core.annotation.Timed;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -75,12 +76,14 @@ public class RewardController {
 
 	@PostMapping("/bench/platform/io")
 	@Async("platformExecutor")
+	@Timed(value = "benchmark.io", extraTags = {"thread_model", "platform"}, percentiles = {0.5, 0.95, 0.99})
 	public CompletableFuture<RewardResponse> benchmarkPlatformIo(@RequestBody(required = false) TransactionRequest request) {
 		return CompletableFuture.completedFuture(threadModelBenchmarkService.processIoBoundTask(request));
 	}
 
 	@PostMapping("/bench/virtual/io")
 	@Async("virtualExecutor")
+	@Timed(value = "benchmark.io", extraTags = {"thread_model", "virtual"}, percentiles = {0.5, 0.95, 0.99})
 	public CompletableFuture<RewardResponse> benchmarkVirtualIo(@RequestBody(required = false) TransactionRequest request) {
 		return CompletableFuture.completedFuture(threadModelBenchmarkService.processIoBoundTask(request));
 	}

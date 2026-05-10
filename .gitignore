@@ -16,4 +16,12 @@ boost/rewards-batch/target/
 .idea/
 .vscode/
 
-boost/jmeter/results/
+# Monitoring data (docker volumes)
+prometheus-data/
+grafana-data/
+
+# JMeter legacy (removed)
+*.jtl
+*.jmx
+jmeter.log
+html-report/

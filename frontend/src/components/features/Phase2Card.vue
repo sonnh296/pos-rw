@@ -1,140 +1,141 @@
 <script setup lang="ts">
-import { onMounted, watch, nextTick } from 'vue';
-import { Chart, registerables } from 'chart.js';
-import type { Phase2Result } from '@/types';
+import { ref } from 'vue';
 import BaseCard from '@/components/ui/BaseCard.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 
-Chart.register(...registerables);
+const grafanaUrl = ref('http://localhost:3000/d/thread-comparison');
+const copied = ref('');
 
-const props = defineProps<{
-  summary: Phase2Result['summary'] | null;
-  isRunning: boolean;
-}>();
-
-defineEmits(['run', 'refresh']);
-
-let throughputChart: Chart | null = null;
-let p95Chart: Chart | null = null;
-
-function drawCharts() {
-  if (!props.summary || !props.summary['PLATFORM']) return;
-
-  const plat = props.summary['PLATFORM'];
-  const virt = props.summary['VIRTUAL'];
-
-  const tCtx = document.getElementById('p2_throughput_chart') as HTMLCanvasElement;
-  if (tCtx) {
-    if (throughputChart) throughputChart.destroy();
-    throughputChart = new Chart(tCtx, {
-      type: 'bar',
-      data: {
-        labels: ['Platform Thread', 'Virtual Thread'],
-        datasets: [{
-          label: 'RPS',
-          data: [plat.avgThroughput, virt.avgThroughput],
-          backgroundColor: ['#3b82f6', '#8b5cf6'],
-          borderRadius: 8
-        }]
-      },
-      options: { 
-        responsive: true, 
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b' } },
-          x: { grid: { display: false }, ticks: { color: '#f1f5f9' } }
-        }
-      }
-    });
-  }
-
-  const pCtx = document.getElementById('p2_p95_chart') as HTMLCanvasElement;
-  if (pCtx) {
-    if (p95Chart) p95Chart.destroy();
-    p95Chart = new Chart(pCtx, {
-      type: 'bar',
-      data: {
-        labels: ['Platform Thread', 'Virtual Thread'],
-        datasets: [{
-          label: 'ms',
-          data: [plat.avgP95, virt.avgP95],
-          backgroundColor: ['#f59e0b', '#ec4899'],
-          borderRadius: 8
-        }]
-      },
-      options: { 
-        responsive: true, 
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b' } },
-          x: { grid: { display: false }, ticks: { color: '#f1f5f9' } }
-        }
-      }
-    });
-  }
+function copyCommand(cmd: string) {
+  navigator.clipboard.writeText(cmd);
+  copied.value = cmd;
+  setTimeout(() => copied.value = '', 2000);
 }
 
-watch(() => props.summary, async () => {
-  await nextTick();
-  drawCharts();
-}, { deep: true });
-
-onMounted(() => {
-  if (props.summary) drawCharts();
-});
+function openGrafana() {
+  window.open(grafanaUrl.value, '_blank');
+}
 </script>
 
 <template>
   <BaseCard 
     title="Giai Đoạn 2: Hiệu Năng (Platform vs Virtual Thread)"
-    subtitle="Lặp lại 5 lần. Mỗi vòng lặp gửi 5000 request I/O đồng thời để so sánh throughput và latency."
+    subtitle="Dùng K6 để gửi tới 5000 request đồng thời. Theo dõi kết quả real-time trên Grafana dashboard."
   >
     <template #headerActions>
       <div class="card-actions">
-        <BaseButton variant="primary" size="small" @click="$emit('run')" :disabled="isRunning">Chạy Test</BaseButton>
-        <BaseButton variant="ghost" size="small" @click="$emit('refresh')">Làm Mới</BaseButton>
+        <BaseButton variant="primary" size="small" @click="openGrafana">
+          Mở Grafana
+        </BaseButton>
       </div>
     </template>
 
-    <div v-if="summary && summary['PLATFORM']" class="charts-grid">
-      <div class="chart-wrapper">
-        <h4>Lưu lượng trung bình (RPS)</h4>
-        <div class="canvas-container">
-          <canvas id="p2_throughput_chart"></canvas>
-        </div>
-        <div class="chart-metrics">
-          <div class="metric">
-            <span class="label">Platform:</span>
-            <span class="val">{{ Math.round(summary['PLATFORM'].avgThroughput) }}</span>
+    <div class="k6-guide">
+      <!-- Architecture Info -->
+      <div class="info-section">
+        <h4>Kiến trúc mới</h4>
+        <div class="arch-flow">
+          <div class="flow-item">
+            <div class="flow-icon">K6</div>
+            <span>Load Generator</span>
           </div>
-          <div class="metric">
-            <span class="label">Virtual:</span>
-            <span class="val highlighted">{{ Math.round(summary['VIRTUAL'].avgThroughput) }}</span>
+          <div class="flow-arrow">→</div>
+          <div class="flow-item">
+            <div class="flow-icon api">API</div>
+            <span>Spring Boot</span>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-item">
+            <div class="flow-icon prom">P</div>
+            <span>Prometheus</span>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-item">
+            <div class="flow-icon graf">G</div>
+            <span>Grafana</span>
           </div>
         </div>
       </div>
 
-      <div class="chart-wrapper">
-        <h4>Độ Trễ P95 trung bình (ms)</h4>
-        <div class="canvas-container">
-          <canvas id="p2_p95_chart"></canvas>
-        </div>
-        <div class="chart-metrics">
-          <div class="metric">
-            <span class="label">Platform:</span>
-            <span class="val">{{ Math.round(summary['PLATFORM'].avgP95) }}ms</span>
+      <!-- Commands -->
+      <div class="commands-section">
+        <h4>Chạy Performance Test</h4>
+        
+        <div class="command-block">
+          <div class="command-label">
+            <span class="tag platform">Platform vs Virtual</span>
+            <span class="desc">5000 VUs, ramp-up, so sánh throughput + latency</span>
           </div>
-          <div class="metric">
-            <span class="label">Virtual:</span>
-            <span class="val highlighted-warn">{{ Math.round(summary['VIRTUAL'].avgP95) }}ms</span>
+          <div class="command-line" @click="copyCommand('docker compose run k6 run -o experimental-prometheus-rw /scripts/phase2-throughput.js')">
+            <code>docker compose run k6 run -o experimental-prometheus-rw /scripts/phase2-throughput.js</code>
+            <span class="copy-hint">{{ copied === 'docker compose run k6 run -o experimental-prometheus-rw /scripts/phase2-throughput.js' ? '✓ Copied' : 'Click to copy' }}</span>
+          </div>
+        </div>
+
+        <div class="command-block">
+          <div class="command-label">
+            <span class="tag accuracy">Accuracy Test</span>
+            <span class="desc">Kiểm tra data consistency dưới concurrency</span>
+          </div>
+          <div class="command-line" @click="copyCommand('docker compose run k6 run -o experimental-prometheus-rw /scripts/phase1-accuracy.js')">
+            <code>docker compose run k6 run -o experimental-prometheus-rw /scripts/phase1-accuracy.js</code>
+            <span class="copy-hint">{{ copied === 'docker compose run k6 run -o experimental-prometheus-rw /scripts/phase1-accuracy.js' ? '✓ Copied' : 'Click to copy' }}</span>
           </div>
         </div>
       </div>
-    </div>
-    <div v-else class="empty-state">
-      <p>Chưa có dữ liệu. Hãy chạy kiểm thử để so sánh hiệu năng.</p>
+
+      <!-- Grafana Panels -->
+      <div class="metrics-preview">
+        <h4>Metrics trên Grafana Dashboard</h4>
+        <div class="metrics-grid">
+          <div class="metric-item">
+            <div class="metric-icon">📈</div>
+            <div class="metric-info">
+              <strong>Request Rate</strong>
+              <span>Platform vs Virtual req/s</span>
+            </div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-icon">⏱</div>
+            <div class="metric-info">
+              <strong>P95 Latency</strong>
+              <span>Response time comparison</span>
+            </div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-icon">🧵</div>
+            <div class="metric-info">
+              <strong>JVM Threads</strong>
+              <span>Live + Peak thread count</span>
+            </div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-icon">💾</div>
+            <div class="metric-info">
+              <strong>Memory & CPU</strong>
+              <span>Heap usage, CPU, GC pauses</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Links -->
+      <div class="links-section">
+        <a :href="grafanaUrl" target="_blank" class="link-card grafana-link">
+          <span class="link-icon">📊</span>
+          <div>
+            <strong>Grafana Dashboard</strong>
+            <span>{{ grafanaUrl }}</span>
+          </div>
+        </a>
+        <a href="http://localhost:9090" target="_blank" class="link-card prom-link">
+          <span class="link-icon">🔍</span>
+          <div>
+            <strong>Prometheus UI</strong>
+            <span>http://localhost:9090</span>
+          </div>
+        </a>
+      </div>
     </div>
   </BaseCard>
 </template>
@@ -142,62 +143,204 @@ onMounted(() => {
 <style scoped>
 .card-actions { display: flex; gap: 8px; }
 
-.charts-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.k6-guide {
+  display: flex;
+  flex-direction: column;
   gap: 24px;
 }
 
-.chart-wrapper {
+/* Architecture Flow */
+.info-section h4,
+.commands-section h4,
+.metrics-preview h4 {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.arch-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
 }
 
-h4 {
-  margin: 0 0 20px;
-  font-size: 14px;
-  color: #94a3b8;
-  text-align: center;
-}
-
-.canvas-container {
-  height: 240px;
-  position: relative;
-  margin-bottom: 16px;
-}
-
-.chart-metrics {
-  display: flex;
-  justify-content: center;
-  gap: 20px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.metric {
+.flow-item {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 6px;
 }
 
-.metric .label { font-size: 10px; color: #64748b; text-transform: uppercase; }
-.metric .val { font-size: 16px; font-weight: 700; color: #f1f5f9; }
-.metric .val.highlighted { color: #8b5cf6; }
-.metric .val.highlighted-warn { color: #ec4899; }
-
-.empty-state {
-  text-align: center;
-  padding: 40px;
+.flow-item span {
+  font-size: 10px;
   color: #64748b;
 }
 
-.empty-state .icon { font-size: 32px; margin-bottom: 12px; opacity: 0.5; }
+.flow-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 13px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: #fff;
+}
+
+.flow-icon.api { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.flow-icon.prom { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.flow-icon.graf { background: linear-gradient(135deg, #ec4899, #db2777); }
+
+.flow-arrow {
+  font-size: 18px;
+  color: #475569;
+  font-weight: 700;
+}
+
+/* Commands */
+.command-block {
+  margin-bottom: 12px;
+}
+
+.command-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.tag.platform { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+.tag.accuracy { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+
+.command-label .desc {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.command-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.command-line:hover {
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.command-line code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #e2e8f0;
+  word-break: break-all;
+}
+
+.copy-hint {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  margin-left: 12px;
+}
+
+/* Metrics Preview */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.metric-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.metric-icon { font-size: 20px; }
+
+.metric-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.metric-info strong {
+  font-size: 12px;
+  color: #f1f5f9;
+}
+
+.metric-info span {
+  font-size: 10px;
+  color: #64748b;
+}
+
+/* Links */
+.links-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.link-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.link-card:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(255, 255, 255, 0.04);
+  transform: translateY(-1px);
+}
+
+.link-icon { font-size: 24px; }
+
+.link-card strong {
+  display: block;
+  font-size: 13px;
+  color: #f1f5f9;
+}
+
+.link-card span {
+  font-size: 11px;
+  color: #64748b;
+}
 
 @media (max-width: 800px) {
-  .charts-grid { grid-template-columns: 1fr; }
+  .arch-flow { flex-wrap: wrap; }
+  .metrics-grid { grid-template-columns: 1fr; }
+  .links-section { grid-template-columns: 1fr; }
 }
 </style>

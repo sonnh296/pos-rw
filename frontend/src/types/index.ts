@@ -23,24 +23,23 @@ export interface CustomerPointListResponse {
   keyword: string;
 }
 
-export interface TestStatus {
-  phase1Running: boolean;
-  phase1Progress: number;
-  phase2Running: boolean;
-  phase2Progress: number;
+/** Kết quả 1 iteration của Phase 1 accuracy test */
+export interface Phase1IterationResult {
+  executor: string;
+  mode: string;
+  iteration: number;
+  customerId: string;
+  amount: number;
+  expectedPoints: number;
+  actualPoints: number;
+  isAccurate: boolean;
+  durationMs: number;
 }
 
-export interface Phase1Result {
-  summary: Record<string, {
-    total: number;
-    accurate: number;
-    avgDuration: number;
-  }>;
-}
-
-export interface Phase2Result {
-  summary: Record<string, {
-    avgThroughput: number;
-    avgP95: number;
-  }>;
+/** Summary cho 1 combo executor+mode */
+export interface Phase1GroupSummary {
+  total: number;
+  accurate: number;
+  percent: number;
+  avgDuration: number;
 }

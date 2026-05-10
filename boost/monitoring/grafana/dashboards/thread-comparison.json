@@ -1,0 +1,214 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Request Rate — Platform vs Virtual Thread",
+      "description": "So sánh số lượng request/giây giữa 2 mô hình thread khi gọi benchmark I/O endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "req/s",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "auto"
+          },
+          "unit": "reqps"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Platform" }, "properties": [{ "id": "color", "value": { "fixedColor": "#3b82f6", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Virtual" }, "properties": [{ "id": "color", "value": { "fixedColor": "#8b5cf6", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "rate(http_server_requests_seconds_count{uri=~\".*bench.*/io\", method=\"POST\", uri=~\".*platform.*\"}[30s])",
+          "legendFormat": "Platform",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(http_server_requests_seconds_count{uri=~\".*bench.*/io\", method=\"POST\", uri=~\".*virtual.*\"}[30s])",
+          "legendFormat": "Virtual",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "P95 Latency — Platform vs Virtual Thread",
+      "description": "Percentile 95 của response time. Platform sẽ tăng vọt khi concurrent > pool size (20)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "ms",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "ms"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Platform P95" }, "properties": [{ "id": "color", "value": { "fixedColor": "#f59e0b", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Virtual P95" }, "properties": [{ "id": "color", "value": { "fixedColor": "#ec4899", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{uri=~\".*bench.*platform.*/io\", method=\"POST\"}[30s])) * 1000",
+          "legendFormat": "Platform P95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{uri=~\".*bench.*virtual.*/io\", method=\"POST\"}[30s])) * 1000",
+          "legendFormat": "Virtual P95",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "JVM Live Threads",
+      "description": "Tổng số thread đang sống. Platform capped ở pool size, Virtual tăng theo load",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#10b981", "mode": "fixed" },
+          "custom": { "fillOpacity": 15, "lineWidth": 2 },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads{application=\"pos-boost\"}",
+          "legendFormat": "Live Threads",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_threads_peak_threads{application=\"pos-boost\"}",
+          "legendFormat": "Peak Threads",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "JVM Heap Memory",
+      "description": "Memory used vs committed. Quan sát áp lực bộ nhớ dưới load cao",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 20, "lineWidth": 2 },
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{application=\"pos-boost\", area=\"heap\"}",
+          "legendFormat": "Used ({{id}})",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_memory_committed_bytes{application=\"pos-boost\", area=\"heap\"}",
+          "legendFormat": "Committed ({{id}})",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "CPU Usage",
+      "description": "Process CPU vs System CPU",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 20, "lineWidth": 2 },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        }
+      },
+      "targets": [
+        {
+          "expr": "process_cpu_usage{application=\"pos-boost\"}",
+          "legendFormat": "Process CPU",
+          "refId": "A"
+        },
+        {
+          "expr": "system_cpu_usage{application=\"pos-boost\"}",
+          "legendFormat": "System CPU",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "GC Pause Duration",
+      "description": "Tổng thời gian GC pause. Tăng dưới memory pressure",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 15, "lineWidth": 2 },
+          "unit": "s"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_sum{application=\"pos-boost\"}[30s])",
+          "legendFormat": "GC Pause Rate ({{cause}}/{{action}})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "HTTP Error Rate",
+      "description": "Tỉ lệ lỗi HTTP 5xx. Platform sẽ tăng error khi quá tải",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 15, "lineWidth": 2 },
+          "unit": "percentunit"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=~\".*bench.*platform.*/io\", status=~\"5..\"}[30s])) / sum(rate(http_server_requests_seconds_count{uri=~\".*bench.*platform.*/io\"}[30s]))",
+          "legendFormat": "Platform Error %",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=~\".*bench.*virtual.*/io\", status=~\"5..\"}[30s])) / sum(rate(http_server_requests_seconds_count{uri=~\".*bench.*virtual.*/io\"}[30s]))",
+          "legendFormat": "Virtual Error %",
+          "refId": "B"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["pos", "performance", "thread-comparison"],
+  "templating": { "list": [] },
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "POS — Platform vs Virtual Thread",
+  "uid": "thread-comparison",
+  "version": 1
+}

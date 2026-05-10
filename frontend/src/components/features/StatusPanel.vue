@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { TestStatus } from '@/types';
+import type { Phase1Progress } from '@/api/test.service';
 
 defineProps<{
-  status: TestStatus;
+  progress: Phase1Progress;
 }>();
 </script>
 
@@ -10,26 +10,15 @@ defineProps<{
   <div class="status-panel">
     <h3>Trạng Thái Kiểm Thử Đang Chạy</h3>
     
-    <div v-if="status.phase1Running" class="progress-box">
+    <div class="progress-box">
       <div class="progress-info">
-        <label>Giai Đoạn 1: Độ Chính Xác</label>
-        <span>{{ Math.round((status.phase1Progress / 30) * 100) }}%</span>
+        <label>{{ progress.currentLabel }}</label>
+        <span>{{ Math.round((progress.current / progress.total) * 100) }}%</span>
       </div>
       <div class="progress-bar">
-        <div class="fill" :style="{ width: (status.phase1Progress / 30 * 100) + '%' }"></div>
+        <div class="fill" :style="{ width: (progress.current / progress.total * 100) + '%' }"></div>
       </div>
-      <small>{{ status.phase1Progress }} / 30 vòng lặp hoàn tất</small>
-    </div>
-
-    <div v-if="status.phase2Running" class="progress-box">
-      <div class="progress-info">
-        <label>Giai Đoạn 2: Hiệu Năng</label>
-        <span>{{ Math.round((status.phase2Progress / 10) * 100) }}%</span>
-      </div>
-      <div class="progress-bar progress-bar--purple">
-        <div class="fill" :style="{ width: (status.phase2Progress / 10 * 100) + '%' }"></div>
-      </div>
-      <small>{{ status.phase2Progress }} / 10 vòng lặp hoàn tất</small>
+      <small>{{ progress.current }} / {{ progress.total }} vòng lặp hoàn tất</small>
     </div>
   </div>
 </template>
@@ -93,11 +82,6 @@ h3 {
   background: linear-gradient(90deg, #10b981, #34d399);
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.progress-bar--purple .fill {
-  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
-  box-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
 }
 
 small {
