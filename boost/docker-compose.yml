@@ -58,7 +58,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: rewards
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
-      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0"
+      JAVA_OPTS: "-Xmx512m -Xms256m"
 
   rewards-batch:
     build: ./rewards-batch
@@ -76,6 +76,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: rewards
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+      JAVA_OPTS: "-Xmx256m -Xms128m"
 
 volumes:
   redis-data: {}
