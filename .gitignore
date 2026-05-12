@@ -19,3 +19,6 @@ boost/rewards-batch/target/
 boost/jmeter/results/
 
 loadtest/
+
+frontend/public/results_csv
+

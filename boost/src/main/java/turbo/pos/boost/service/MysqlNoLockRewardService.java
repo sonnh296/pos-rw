@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import turbo.pos.boost.dto.RewardResponse;
 import turbo.pos.boost.dto.TransactionRequest;
 import turbo.pos.boost.repository.RewardRepository;
+import turbo.pos.boost.util.RewardUtils;
 
 /**
  * Không FOR UPDATE (demo consistency):
@@ -27,7 +28,7 @@ public class MysqlNoLockRewardService {
 		long start = System.currentTimeMillis();
 		String customerId = request.getCustomerId();
 		String txnId = request.getTransactionId();
-		long pointsDelta = Math.round(request.getAmount() * 10);
+		long pointsDelta = RewardUtils.calculatePoints(request.getAmount());
 		BigDecimal amount = BigDecimal.valueOf(request.getAmount());
 
 		try {

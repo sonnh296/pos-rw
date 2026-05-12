@@ -1,4 +1,4 @@
-package turbo.pos.boost.service;
+package turbo.pos.boost.exception;
 
 /**
  * Ném ra khi Redis/Redisson không truy cập được (connection/timeout),
@@ -14,4 +14,3 @@ public class RedisUnavailableException extends RuntimeException {
 		super(cause);
 	}
 }
-

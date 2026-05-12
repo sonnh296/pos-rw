@@ -111,13 +111,6 @@ async function clearResults() {
 <template>
   <div class="performance-page">
     <div class="header-info">
-      <div class="instructions">
-        <h3>Hướng dẫn chạy Test</h3>
-        <p>Hệ thống không tự động chạy test để đảm bảo tách biệt môi trường thực tế. Hãy mở Terminal và chạy lệnh sau:</p>
-        <code>cd pos/loadtest/script_run && ./run-phase1.sh 100</code>
-        <br/><br/>
-        <code>cd pos/loadtest/script_run && ./run-phase2.sh 100 5000</code>
-      </div>
       <div class="top-actions">
         <BaseButton 
           variant="primary" 
@@ -171,28 +164,6 @@ async function clearResults() {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.instructions h3 {
-  margin-top: 0;
-  margin-bottom: 8px;
-  color: var(--text-color);
-}
-
-.instructions p {
-  margin-top: 0;
-  margin-bottom: 12px;
-  color: rgba(255,255,255,0.7);
-  font-size: 14px;
-}
-
-.instructions code {
-  background: rgba(0,0,0,0.3);
-  padding: 8px 12px;
-  border-radius: 4px;
-  color: #4CAF50;
-  font-family: monospace;
-  display: inline-block;
-  margin-bottom: 8px;
-}
 
 .top-actions {
   display: flex;

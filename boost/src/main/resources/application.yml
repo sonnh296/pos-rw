@@ -10,14 +10,22 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
-      lettuce:
-        pool:
-          max-active: 128
-          max-idle: 64
 
   autoconfigure:
-    exclude:
-      - org.redisson.spring.starter.RedissonAutoConfigurationV2
+    exclude: []
+      # - org.redisson.spring.starter.RedissonAutoConfigurationV2 (Enabled)
+
+  # Redisson Configuration (Standard Starter Way)
+  redis:
+    redisson:
+      config:
+        singleServerConfig:
+          address: "redis://${spring.data.redis.host:localhost}:${spring.data.redis.port:6379}"
+          connectionPoolSize: 200
+          connectionMinimumIdleSize: 10
+          # idleConnectionTimeout: 10000
+          # connectTimeout: 10000
+          # timeout: 3000
 
 logging:
   level:
@@ -57,7 +65,7 @@ resilience4j:
         waitDurationInOpenState: 10s
         automaticTransitionFromOpenToHalfOpenEnabled: true
         recordExceptions:
-          - turbo.pos.boost.service.RedisUnavailableException
+          - turbo.pos.boost.exception.RedisUnavailableException
       redisLocking:
         slidingWindowType: COUNT_BASED
         slidingWindowSize: 20
@@ -66,4 +74,4 @@ resilience4j:
         waitDurationInOpenState: 10s
         automaticTransitionFromOpenToHalfOpenEnabled: true
         recordExceptions:
-          - turbo.pos.boost.service.RedisUnavailableException
+          - turbo.pos.boost.exception.RedisUnavailableException

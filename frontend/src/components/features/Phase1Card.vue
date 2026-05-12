@@ -84,11 +84,9 @@ onMounted(() => {
 <template>
   <BaseCard 
     title="Giai Đoạn 1: Độ Chính Xác (Khóa vs Không Khóa)"
-    subtitle="Lặp lại 5 lần cho mỗi mô hình Thread. Kiểm chứng độ chính xác khi đối soát giao dịch đồng thời."
   >
     <template #headerActions>
       <div class="card-actions">
-        <BaseButton variant="primary" size="small" @click="$emit('run')" :disabled="isRunning">Chạy Test</BaseButton>
         <BaseButton variant="ghost" size="small" @click="$emit('refresh')">Làm Mới</BaseButton>
       </div>
     </template>

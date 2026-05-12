@@ -7,7 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -24,7 +25,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class OutboxDrainer {
 
-    private final StringRedisTemplate redis;
+    private final RedissonClient redissonClient;
     private final JdbcClient jdbc;
     private final ObjectMapper objectMapper;
 
@@ -60,7 +61,7 @@ public class OutboxDrainer {
     private List<String> popBatch() {
         List<String> items = new ArrayList<>(batchSize);
         for (int i = 0; i < batchSize; i++) {
-            String v = redis.opsForList().rightPop(outboxKey);
+            String v = (String) redissonClient.getDeque(outboxKey, StringCodec.INSTANCE).pollLast();
             if (v == null) {
                 break;
             }

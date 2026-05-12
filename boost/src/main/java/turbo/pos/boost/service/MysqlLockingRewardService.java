@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import turbo.pos.boost.dto.RewardResponse;
 import turbo.pos.boost.dto.TransactionRequest;
 import turbo.pos.boost.repository.RewardRepository;
+import turbo.pos.boost.util.RewardUtils;
 
 /**
  * Fallback path khi Redis chết (availability + consistency):
@@ -30,7 +31,7 @@ public class MysqlLockingRewardService {
 		long start = System.currentTimeMillis();
 		String customerId = request.getCustomerId();
 		String txnId = request.getTransactionId();
-		long pointsDelta = Math.round(request.getAmount() * 10);
+		long pointsDelta = RewardUtils.calculatePoints(request.getAmount());
 		BigDecimal amount = BigDecimal.valueOf(request.getAmount());
 
 		try {

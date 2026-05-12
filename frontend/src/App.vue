@@ -66,7 +66,6 @@ const PAGE_TITLES: Record<string, string> = {
       </main>
 
       <footer class="content-footer">
-        <p>© 2026 Boost POS Performance Demo. All rights reserved.</p>
         <div class="api-info">
           Proxy: <code>/api</code> → <code>localhost:8080</code>
         </div>

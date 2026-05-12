@@ -89,11 +89,9 @@ onMounted(() => {
 <template>
   <BaseCard 
     title="Giai Đoạn 2: Hiệu Năng (Platform vs Virtual Thread)"
-    subtitle="Lặp lại 5 lần. Mỗi vòng lặp gửi 5000 request I/O đồng thời để so sánh throughput và latency."
   >
     <template #headerActions>
       <div class="card-actions">
-        <BaseButton variant="primary" size="small" @click="$emit('run')" :disabled="isRunning">Chạy Test</BaseButton>
         <BaseButton variant="ghost" size="small" @click="$emit('refresh')">Làm Mới</BaseButton>
       </div>
     </template>

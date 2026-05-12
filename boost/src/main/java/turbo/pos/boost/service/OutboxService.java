@@ -2,10 +2,9 @@ package turbo.pos.boost.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
+import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.redis.RedisConnectionFailureException;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import turbo.pos.boost.repository.RewardRepository;
 
@@ -20,7 +19,7 @@ public class OutboxService {
 
     private static final String OUTBOX_KEY = "rewards:outbox";
 
-    private final ObjectProvider<StringRedisTemplate> redisProvider;
+    private final RedissonClient redissonClient;
     private final RewardRepository rewardRepository;
 
     public Map<String, Object> getStats() {
@@ -30,15 +29,7 @@ public class OutboxService {
         Long queueSize = null;
         String redisStatus = "ok";
         try {
-            StringRedisTemplate redis = redisProvider.getIfAvailable();
-            if (redis != null) {
-                queueSize = redis.opsForList().size(OUTBOX_KEY);
-            } else {
-                redisStatus = "disabled";
-            }
-        } catch (RedisConnectionFailureException e) {
-            log.warn("Could not connect to Redis: {}", e.getMessage());
-            redisStatus = "connection_error";
+            queueSize = (long) redissonClient.getDeque(OUTBOX_KEY, StringCodec.INSTANCE).size();
         } catch (Exception e) {
             log.error("Unknown error accessing Redis: ", e);
             redisStatus = "error";
