@@ -1,13 +1,5 @@
 services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
-    volumes:
-      - redis-data:/data
-      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-
+  # Cấu hình Database (Giữ lại nếu chưa dùng AWS RDS)
   mysql:
     image: mysql:8.4
     environment:
@@ -34,49 +26,41 @@ services:
       retries: 20
       start_period: 30s
 
-  # Giao diện web xem key Redis (Redis Insight). Mở http://localhost:5540 → Add database → Host: redis, Port: 6379
-  redis-insight:
-    image: redis/redisinsight:latest
-    ports:
-      - "5540:5540"
-    depends_on:
-      - redis
-
+  # Application - Backend Boost
   boost:
     build: .
     image: turbo-pos-boost:latest
     depends_on:
       mysql:
         condition: service_healthy
-      redis:
-        condition: service_started
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/rewards?allowPublicKeyRetrieval=true&useSSL=false&characterEncoding=UTF-8
-      SPRING_DATASOURCE_USERNAME: rewards
-      SPRING_DATASOURCE_PASSWORD: rewards
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: "6379"
-      JAVA_OPTS: "-Xmx1024m -Xms512m"
+      # Kết nối tới Amazon ElastiCache (Truyền Endpoint qua biến môi trường hoặc ghi đè tại đây)
+      - REDISSON_ADDRESS=${REDISSON_ADDRESS:-redis://localhost:6379}
+      - SPRING_DATA_REDIS_HOST=${SPRING_DATA_REDIS_HOST:-localhost}
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/rewards?allowPublicKeyRetrieval=true&useSSL=false&characterEncoding=UTF-8
+      - SPRING_DATASOURCE_USERNAME=rewards
+      - SPRING_DATASOURCE_PASSWORD=rewards
+      - JAVA_OPTS=-Xmx1024m -Xms512m
 
+  # Application - Batch Processing
   rewards-batch:
     build: ./rewards-batch
     image: turbo-pos-rewards-batch:latest
     depends_on:
       mysql:
         condition: service_healthy
-      redis:
-        condition: service_started
     ports:
       - "8081:8081"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/rewards?allowPublicKeyRetrieval=true&useSSL=false&characterEncoding=UTF-8
-      SPRING_DATASOURCE_USERNAME: rewards
-      SPRING_DATASOURCE_PASSWORD: rewards
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: "6379"
-      JAVA_OPTS: "-Xmx512m -Xms256m"
+      - REDISSON_ADDRESS=${REDISSON_ADDRESS:-redis://localhost:6379}
+      - SPRING_DATA_REDIS_HOST=${SPRING_DATA_REDIS_HOST:-localhost}
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/rewards?allowPublicKeyRetrieval=true&useSSL=false&characterEncoding=UTF-8
+      - SPRING_DATASOURCE_USERNAME=rewards
+      - SPRING_DATASOURCE_PASSWORD=rewards
+      - JAVA_OPTS=-Xmx512m -Xms256m
 
-volumes:
-  redis-data: {}
+# Đã loại bỏ Redis container vì sử dụng AWS ElastiCache managed service

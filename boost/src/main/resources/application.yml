@@ -20,9 +20,10 @@ spring:
     redisson:
       config:
         singleServerConfig:
-          address: "redis://${spring.data.redis.host:localhost}:${spring.data.redis.port:6379}"
-          connectionPoolSize: 200
-          connectionMinimumIdleSize: 10
+          address: "${REDISSON_ADDRESS:redis://${spring.data.redis.host:localhost}:${spring.data.redis.port:6379}}"
+          dnsMonitoringInterval: 5000
+          connectionPoolSize: 500
+          connectionMinimumIdleSize: 50
           # idleConnectionTimeout: 10000
           # connectTimeout: 10000
           # timeout: 3000
