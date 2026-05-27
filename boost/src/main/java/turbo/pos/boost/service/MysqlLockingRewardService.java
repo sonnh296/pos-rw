@@ -35,19 +35,6 @@ public class MysqlLockingRewardService {
 		BigDecimal amount = BigDecimal.valueOf(request.getAmount());
 
 		try {
-			if (rewardRepository.existsByTransactionId(txnId)) {
-				long bal = rewardRepository.findBalanceByCustomerId(customerId).orElse(0L);
-				return RewardResponse.builder()
-						.customerId(customerId)
-						.totalPoints(bal)
-						.status("DUPLICATE_TRANSACTION")
-						.threadName(Thread.currentThread().toString())
-						.processingTimeMs(System.currentTimeMillis() - start)
-						.build();
-			}
-
-			// TimeUnit.MILLISECONDS.sleep(50);
-
 			rewardRepository.ensureCustomerBalanceRecord(customerId);
 			Long balance = rewardRepository.findBalanceByCustomerIdForUpdate(customerId)
 					.orElse(0L);

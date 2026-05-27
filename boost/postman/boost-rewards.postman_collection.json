@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		"name": "Boost — Rewards API",
-		"description": "Boost: rewards (Redis+Redisson / mysql-only), ledger MySQL, Actuator health. Import → chọn file. `GET points` có field `source` (redis|mysql).",
+		"description": "Production: POST /api/rewards/checkout. Demo: /api/rewards/demo/* (app.demo.enabled=true).",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -21,21 +21,37 @@
 	],
 	"item": [
 		{
+			"name": "POST checkout (production)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
+				},
+				"url": "{{baseUrl}}/api/rewards/checkout",
+				"description": "Virtual thread + lock + idempotency + outbox. 409 on duplicate txnId."
+			}
+		},
+		{
 			"name": "GET current points",
 			"request": {
 				"method": "GET",
 				"header": [],
-				"url": "{{baseUrl}}/api/rewards/points/{{customerId}}",
-				"description": "Điểm theo chế độ: mặc định Redis; profile mysql-only → MySQL `customer_balance`. Response: customerId, points, source."
+				"url": "{{baseUrl}}/api/rewards/points/{{customerId}}"
 			}
 		},
 		{
-			"name": "GET balance compare (Redis vs MySQL)",
+			"name": "GET balance compare",
 			"request": {
 				"method": "GET",
 				"header": [],
-				"url": "{{baseUrl}}/api/rewards/balance/compare/{{customerId}}",
-				"description": "mysqlBalance vs redisPoints, inSync. Sau nhiều /lock (redis mode) thường inSync=true; chỉ /no-lock thì Redis có thể lệch MySQL."
+				"url": "{{baseUrl}}/api/rewards/balance/compare/{{customerId}}"
 			}
 		},
 		{
@@ -43,12 +59,11 @@
 			"request": {
 				"method": "GET",
 				"header": [],
-				"url": "{{baseUrl}}/actuator/health",
-				"description": "Trạng thái db, redis (tắt redis health khi profile mysql-only)."
+				"url": "{{baseUrl}}/actuator/health"
 			}
 		},
 		{
-			"name": "POST platform / no-lock",
+			"name": "POST demo / virtual / lock",
 			"request": {
 				"method": "POST",
 				"header": [
@@ -61,12 +76,11 @@
 					"mode": "raw",
 					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
 				},
-				"url": "{{baseUrl}}/api/rewards/platform/no-lock",
-				"description": "Thread pool platform (200) — không lock (race có thể xảy ra)."
+				"url": "{{baseUrl}}/api/rewards/demo/virtual/lock"
 			}
 		},
 		{
-			"name": "POST platform / lock",
+			"name": "POST demo / virtual / no-lock",
 			"request": {
 				"method": "POST",
 				"header": [
@@ -79,12 +93,12 @@
 					"mode": "raw",
 					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
 				},
-				"url": "{{baseUrl}}/api/rewards/platform/lock",
-				"description": "Platform + Redisson lock; ghi ledger + customer_balance MySQL; đồng bộ Redis."
+				"url": "{{baseUrl}}/api/rewards/demo/virtual/no-lock",
+				"description": "Demo race only — not for production."
 			}
 		},
 		{
-			"name": "POST virtual / no-lock",
+			"name": "POST demo / platform / lock",
 			"request": {
 				"method": "POST",
 				"header": [
@@ -97,12 +111,11 @@
 					"mode": "raw",
 					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
 				},
-				"url": "{{baseUrl}}/api/rewards/virtual/no-lock",
-				"description": "Virtual threads — không lock."
+				"url": "{{baseUrl}}/api/rewards/demo/platform/lock"
 			}
 		},
 		{
-			"name": "POST virtual / lock",
+			"name": "POST demo / platform / no-lock",
 			"request": {
 				"method": "POST",
 				"header": [
@@ -115,8 +128,7 @@
 					"mode": "raw",
 					"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"transactionId\": \"{{transactionId}}\",\n  \"amount\": 100.0\n}"
 				},
-				"url": "{{baseUrl}}/api/rewards/virtual/lock",
-				"description": "Virtual + Redisson lock + MySQL ledger."
+				"url": "{{baseUrl}}/api/rewards/demo/platform/no-lock"
 			}
 		}
 	]

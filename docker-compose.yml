@@ -1,3 +1,5 @@
+# Chạy full stack: docker compose up --build
+# UI: http://localhost:5173  |  API: http://localhost:8080
 services:
   redis:
     image: redis:7-alpine
@@ -6,7 +8,13 @@ services:
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes:
       - redis-data:/data
-      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./boost/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli INFO persistence | grep -q 'loading:0' && redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 300s
 
   mysql:
     image: mysql:8.4
@@ -19,37 +27,23 @@ services:
       - "3306:3306"
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test:
-        [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "127.0.0.1",
-          "-uroot",
-          "-proot_change_me",
-        ]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot_change_me"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 30s
 
-  # Giao diện web xem key Redis (Redis Insight). Mở http://localhost:5540 → Add database → Host: redis, Port: 6379
-  redis-insight:
-    image: redis/redisinsight:latest
-    ports:
-      - "5540:5540"
-    depends_on:
-      - redis
-
   boost:
-    build: .
+    build:
+      context: .
+      dockerfile: boost/Dockerfile
     image: turbo-pos-boost:latest
     depends_on:
       mysql:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
+    restart: on-failure
     ports:
       - "8080:8080"
     environment:
@@ -58,16 +52,19 @@ services:
       SPRING_DATASOURCE_PASSWORD: rewards
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
-      JAVA_OPTS: "-Xmx1024m -Xms512m"
+      JAVA_OPTS: "-Xmx2048m -Xms1024m"
 
   rewards-batch:
-    build: ./rewards-batch
+    build:
+      context: .
+      dockerfile: rewards-batch/Dockerfile
     image: turbo-pos-rewards-batch:latest
     depends_on:
       mysql:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
+    restart: on-failure
     ports:
       - "8081:8081"
     environment:
@@ -77,6 +74,16 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       JAVA_OPTS: "-Xmx512m -Xms256m"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: turbo-pos-frontend:latest
+    depends_on:
+      - boost
+    ports:
+      - "5173:80"
 
 volumes:
   redis-data: {}

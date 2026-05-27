@@ -1,75 +1,57 @@
 package turbo.pos.boost.controller;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.task.TaskExecutor;
+import java.util.Map;
+
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import turbo.pos.boost.dto.TransactionRequest;
-import turbo.pos.boost.service.LockingRedisRewardService;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
-@Slf4j
+import lombok.RequiredArgsConstructor;
+import turbo.pos.boost.dto.BenchmarkRampResponse;
+import turbo.pos.boost.dto.BenchmarkRunResponse;
+import turbo.pos.boost.service.BenchmarkService;
+
 @RestController
 @RequestMapping("/api/benchmark")
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.benchmark.enabled", havingValue = "true", matchIfMissing = true)
 public class BenchmarkController {
 
-    private final LockingRedisRewardService rewardService;
+	private final BenchmarkService benchmarkService;
 
-    @Qualifier("platformExecutor")
-    private final TaskExecutor platformExecutor;
+	@GetMapping("/meta")
+	public Map<String, Object> meta() {
+		return benchmarkService.meta();
+	}
 
-    @Qualifier("virtualExecutor")
-    private final TaskExecutor virtualExecutor;
+	/**
+	 * In-process benchmark: so sánh platform vs virtual executor với tải cố định (requests/giây).
+	 */
+	@PostMapping("/run")
+	public BenchmarkRunResponse run(
+			@RequestParam(defaultValue = "false") boolean warmup,
+			@RequestParam(defaultValue = "50") int requestsPerSecond,
+			@RequestParam(defaultValue = "10") int durationSeconds,
+			@RequestParam(defaultValue = "BOTH") String executor) {
+		return benchmarkService.run(warmup, requestsPerSecond, durationSeconds, executor);
+	}
 
-    @PostMapping("/internal-test")
-    public Map<String, Object> runInternalBenchmark(@RequestParam(defaultValue = "5000") int count) {
-        log.info("Starting internal benchmark for {} requests", count);
-
-        // 1. Test với Platform Threads
-        BenchmarkResult platformResult = runTest(platformExecutor, count, "PLATFORM");
-
-        // 2. Test với Virtual Threads
-        BenchmarkResult virtualResult = runTest(virtualExecutor, count, "VIRTUAL");
-
-        return Map.of(
-                "totalRequests", count,
-                "platform", platformResult,
-                "virtual", virtualResult,
-                "note", "Test nội bộ để loại bỏ độ trễ mạng và overhead của JMeter/HTTP stack."
-        );
-    }
-
-    private BenchmarkResult runTest(TaskExecutor executor, int count, String label) {
-        long start = System.currentTimeMillis();
-        List<CompletableFuture<Void>> futures = new ArrayList<>(count);
-
-        for (int i = 0; i < count; i++) {
-            String customerId = "bench-" + label + "-" + i + "-" + UUID.randomUUID().toString().substring(0, 8);
-            TransactionRequest request = new TransactionRequest(customerId, "txn-" + UUID.randomUUID(), 100.0);
-            
-            futures.add(CompletableFuture.runAsync(() -> {
-                rewardService.processReward(request);
-            }, executor));
-        }
-
-        // Đợi tất cả hoàn thành
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        
-        long durationMs = System.currentTimeMillis() - start;
-        double rps = (double) count / (durationMs / 1000.0);
-
-        return new BenchmarkResult(durationMs, Math.round(rps * 100.0) / 100.0);
-    }
-
-    public record BenchmarkResult(long durationMs, double rps) {}
+	/**
+	 * Ramp benchmark: tăng dần requests/giây (vd. 500 → 5000) để so sánh PLATFORM vs VIRTUAL.
+	 */
+	@PostMapping("/ramp")
+	public BenchmarkRampResponse ramp(
+			@RequestParam(required = false) String levels,
+			@RequestParam(defaultValue = "false") boolean warmup,
+			@RequestParam(defaultValue = "10") int durationSeconds,
+			@RequestParam(defaultValue = "BOTH") String executor,
+			@RequestParam(defaultValue = "0") int pauseBetweenLevelsSeconds) {
+		List<Integer> parsed = benchmarkService.parseRampLevels(levels);
+		return benchmarkService.runRamp(warmup, parsed, durationSeconds, executor, pauseBetweenLevelsSeconds);
+	}
 }

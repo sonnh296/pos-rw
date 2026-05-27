@@ -1,5 +1,5 @@
 import { apiFetch, jsonBody } from './client';
-import type { User, CustomerPointListResponse } from '@/types';
+import type { User } from '@/types';
 
 export const userService = {
   async getAll() {
@@ -25,20 +25,4 @@ export const userService = {
       method: 'DELETE',
     });
   },
-
-  async getPoints(params: { limit: number; offset: number; keyword?: string }) {
-    const q = new URLSearchParams({
-      limit: String(params.limit),
-      offset: String(params.offset),
-    });
-    if (params.keyword) q.set('keyword', params.keyword);
-    
-    return apiFetch<CustomerPointListResponse>(`/api/rewards/points?${q.toString()}`);
-  },
-
-  async clearAllPoints() {
-    return apiFetch<void>('/api/rewards/points/clear', {
-      method: 'POST',
-    });
-  }
 };

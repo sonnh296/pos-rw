@@ -1,0 +1,13 @@
+# Override cho load test (platform pool nhỏ → dễ thấy lợi thế virtual thread)
+# docker compose -f docker-compose.yml -f docker-compose.perf.yml up -d --build
+services:
+  redis:
+    command: ["redis-server", "/usr/local/etc/redis/redis-perf.conf"]
+    volumes:
+      - redis-data:/data
+      - ./boost/redis/redis-perf.conf:/usr/local/etc/redis/redis-perf.conf:ro
+
+  boost:
+    environment:
+      SPRING_PROFILES_ACTIVE: perf
+      JAVA_OPTS: "-Xmx2048m -Xms1024m -Djdk.virtualThreadScheduler.parallelism=32"

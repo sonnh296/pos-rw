@@ -1,0 +1,13 @@
+# Profile tạm: benchmark không gọi Redis (chỉ tính điểm in-process). Bật: perf,perf-stub
+spring:
+  config:
+    activate:
+      on-profile: perf-stub
+
+app:
+  rewards:
+    stub-redis: true
+
+logging:
+  level:
+    turbo.pos.boost.service.LockingRedisRewardService: WARN

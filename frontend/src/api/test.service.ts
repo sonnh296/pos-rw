@@ -1,5 +1,3 @@
-import { apiFetch } from './client';
-
 export const testService = {
   async clear() {
     // Note: Browser cannot delete local files. 

@@ -12,8 +12,7 @@ import org.springframework.core.task.support.TaskExecutorAdapter;
 @Configuration
 public class ThreadConfig {
 
-	/** Kích thước pool platform */
-	@Value("${app.executors.platform.size:50}")
+	@Value("${app.executors.platform.size:200}")
 	private int platformPoolSize;
 
 	@Bean("singleExecutor")
@@ -25,6 +24,14 @@ public class ThreadConfig {
 	public TaskExecutor platformExecutor() {
 		int size = Math.max(1, platformPoolSize);
 		return new TaskExecutorAdapter(Executors.newFixedThreadPool(size));
+	}
+
+	@Bean
+	public ExecutorRuntimeInfo executorRuntimeInfo() {
+		return new ExecutorRuntimeInfo(Math.max(1, platformPoolSize), "virtual-thread-per-task");
+	}
+
+	public record ExecutorRuntimeInfo(int platformPoolSize, String virtualExecutorType) {
 	}
 
 	@Bean("virtualExecutor")

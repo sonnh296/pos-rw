@@ -1,158 +1,188 @@
-# POS Boost Demo (Backend + Frontend)
+# POS Boost Demo
 
-Repo này là một **project demo** để mô phỏng luồng “thanh toán → cộng điểm” và **so sánh hiệu năng** theo các kịch bản:
+Demo luồng **thanh toán → cộng điểm** với Redis lock, idempotency, outbox → MySQL, và so sánh **platform threads vs virtual threads**.
 
-- **Platform threads (fixed pool)** vs **Virtual threads**
-- **Có/không gọi Redis**, **có/không gọi MySQL**
-- **Redis bị ngắt kết nối** (degraded mode / fallback)
+| Module | Mô tả |
+|--------|--------|
+| `boost/` | API Spring Boot 3 (Java 21) |
+| `rewards-batch/` | Drain outbox Redis → MySQL |
+| `rewards-common/` | DTO outbox dùng chung |
+| `frontend/` | Vue 3 + Vite |
+| `loadtest/` | JMeter + script so sánh platform / virtual |
 
-Thành phần chính:
+---
 
-- **Backend**: `boost/` — Spring Boot 3 (Java 21), MySQL, Redis, Redisson, Resilience4j CircuitBreaker
-- **Batch**: `boost/rewards-batch/` — consumer/outbox demo (được docker-compose dựng kèm)
-- **Frontend**: `frontend/` — Vue 3 + Vite (UI demo + load test giả lập)
+## Yêu cầu
 
-## Business flow (luồng nghiệp vụ)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Compose v2)
+- (Tùy chọn) [Apache JMeter](https://jmeter.apache.org/) trên máy host — chỉ cần khi chạy load test
+- (Tùy chọn) Java 21 + Maven — chỉ khi chạy unit test / dev local không Docker
 
-### 1) Thanh toán (checkout) → cộng điểm (rewards)
+---
 
-- POS/cashier gửi “transaction” gồm:
-  - `customerId`
-  - `transactionId` (idempotency key)
-  - `amount`
-- Hệ thống tính điểm: \(pointsDelta = round(amount \times 10)\)
-- Cập nhật điểm theo mode (demo):
-  - **Redis mode (mặc định)**:
-    - (tuỳ endpoint) lock theo `customerId` bằng **Redisson** hoặc **không lock**
-    - cộng điểm tạm trên Redis để trả kết quả nhanh
-    - (đường lock) đẩy event vào Redis outbox để batch ghi vĩnh viễn xuống MySQL
-    - nếu Redis/Redisson lỗi → **Circuit Breaker** mở mạch và fallback qua MySQL
-  - **MySQL-only mode** (`--spring.profiles.active=mysql-only`):
-    - không khởi tạo Redis/Redisson
-    - ghi ledger và balance trực tiếp MySQL
-    - (tuỳ endpoint) có **FOR UPDATE** (locking) hoặc **không FOR UPDATE** (lost update demo)
+## Chạy bằng Docker (khuyến nghị)
 
-### 2) Query điểm & so sánh consistency
-
-- `GET /api/rewards/points/{customerId}`: lấy “điểm chính” theo mode hiện tại
-- `GET /api/rewards/balance/compare/{customerId}`: so sánh Redis vs MySQL (để thấy lệch khi no-lock / concurrent cao)
-
-## Functional requirements (yêu cầu chức năng)
-
-- **Checkout / rewards**
-  - Nhận transaction, tính điểm, trả về tổng điểm hiện tại
-  - Hỗ trợ nhiều “đường xử lý” để demo: lock / no-lock, platform / virtual
-  - Idempotency theo `transactionId` (tránh cộng điểm 2 lần)
-- **Users API (demo)**
-  - `GET /api/users`: lấy danh sách user (in-memory)
-  - `POST /api/users`: tạo user (in-memory)
-- **Benchmark API**
-  - Endpoint để tạo workload có kiểm soát: none/sleep/mysql/redis/redis+mysql
-  - Cho phép so sánh platform vs virtual dưới cùng điều kiện
-- **Frontend demo**
-  - UI gọi rewards/users/health
-  - UI “Load test (DDoS giả lập)”:
-    - chọn target endpoint
-    - cấu hình `totalRequests`, `concurrency`, `timeout`
-    - hiển thị thống kê latency (min/p50/p95/p99/max/avg) + OK/Fail
-
-## Non-functional requirements (yêu cầu phi chức năng)
-
-- **Performance/throughput**
-  - Chứng minh khác biệt khi concurrent cao:
-    - platform thread pool bị queue/đợi khi vượt số thread
-    - virtual threads scale tốt hơn cho workload dạng IO-wait
-- **Resilience**
-  - Khi Redis lỗi/timeout:
-    - hệ thống có thể degrade/fallback (CircuitBreaker) để tiếp tục phục vụ
-    - có thể quan sát “chậm hơn” khi fallback sang MySQL
-- **Consistency**
-  - Cho thấy rủi ro lost update khi không lock (no-lock path)
-  - Có đường lock (Redisson hoặc MySQL row-lock) để đảm bảo nhất quán tốt hơn
-- **Observability (demo-level)**
-  - Actuator health: `GET /actuator/health`
-
-## Technical notes
-
-### Threading model
-
-- Backend có 2 executor cho async endpoints:
-  - `platformExecutor`: fixed thread pool (200)
-  - `virtualExecutor`: virtual-thread-per-task
-- Rewards API expose 4 endpoint để so sánh:
-  - `POST /api/rewards/platform/lock`
-  - `POST /api/rewards/platform/no-lock`
-  - `POST /api/rewards/virtual/lock`
-  - `POST /api/rewards/virtual/no-lock`
-
-### Redis + Redisson + Circuit Breaker (fallback)
-
-- Redis mode dùng Redis để:
-  - lock theo customer (Redisson)
-  - cập nhật điểm tạm / cache
-  - outbox queue (batch drain)
-- Khi Redis/Redisson lỗi (connection/timeout), service sẽ ném `RedisUnavailableException`.
-- **Resilience4j CircuitBreaker** (2 instance: `redisNoLock`, `redisLocking`) sẽ:
-  - ghi nhận lỗi `RedisUnavailableException`
-  - khi lỗi vượt ngưỡng → chuyển sang **OPEN** trong một khoảng thời gian
-  - trong trạng thái OPEN, request sẽ chạy **fallback** sang MySQL để hệ thống vẫn phục vụ (nhưng thường chậm hơn)
-
-### Benchmark endpoints (đo workload có kiểm soát)
-
-- `GET /api/bench/platform?...`
-- `GET /api/bench/virtual?...`
-- Params chính:
-  - `work=none|sleep|mysql|redis|redis+mysql`
-  - `sleepMs=...` (giả lập IO-wait)
-  - `fallbackToMysqlOnRedisError=true|false`
-
-## API quick list
-
-- Rewards:
-  - `POST /api/rewards/platform/no-lock`
-  - `POST /api/rewards/platform/lock`
-  - `POST /api/rewards/virtual/no-lock`
-  - `POST /api/rewards/virtual/lock`
-  - `GET /api/rewards/points/{customerId}`
-  - `GET /api/rewards/balance/compare/{customerId}`
-- Users:
-  - `GET /api/users`
-  - `POST /api/users`
-- Benchmark:
-  - `GET /api/bench/meta`
-  - `GET /api/bench/platform`
-  - `GET /api/bench/virtual`
-- Health:
-  - `GET /actuator/health`
-
-## Run locally
-
-### Backend (docker compose)
+Từ **thư mục gốc repo**:
 
 ```bash
-cd boost
 docker compose up --build
 ```
 
-Backend chạy ở `http://localhost:8080`.
+| Dịch vụ | URL |
+|---------|-----|
+| **Frontend** | http://localhost:5173 |
+| **API (boost)** | http://localhost:8080 |
+| **Batch** | http://localhost:8081 |
+| **Health** | http://localhost:8080/actuator/health |
 
-### Frontend
+Dừng stack:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+docker compose down
 ```
 
-Frontend chạy ở `http://localhost:5173`.
+Xóa volume Redis/MySQL (reset dữ liệu — **khuyến nghị** nếu Redis load chậm do dữ liệu load test cũ):
 
-## Demo scenarios (gợi ý test)
+```bash
+docker compose down -v
+```
 
-- **Virtual vs Platform**:
-  - Load test chọn `Bench platform • redis+mysql` và `Bench virtual • redis+mysql` với concurrency cao.
-- **No DB / only sleep**:
-  - Load test chọn `Bench ... • none` hoặc `Bench ... • sleep`.
-- **Redis down**:
-  - Stop Redis container, rồi chọn `Bench ... • redis+mysql` + bật “Redis error → fallback MySQL”.
-  - Quan sát tăng latency và/hoặc fail rate.
+---
 
+## Kiểm tra nhanh (smoke test)
+
+Sau khi stack đã `healthy`:
+
+```bash
+chmod +x scripts/smoke-test.sh
+./scripts/smoke-test.sh
+```
+
+Hoặc thủ công:
+
+```bash
+curl http://localhost:8080/actuator/health
+
+curl -X POST http://localhost:8080/api/rewards/checkout \
+  -H 'Content-Type: application/json' \
+  -d '{"customerId":"c1","transactionId":"txn-001","amount":100}'
+
+curl http://localhost:8080/api/rewards/points/c1
+```
+
+---
+
+## Unit test (Maven)
+
+Không cần Docker cho test (dùng Testcontainers):
+
+```bash
+mvn test
+```
+
+Chỉ module boost:
+
+```bash
+mvn -pl boost -am test
+```
+
+---
+
+## Load test — Platform vs Virtual (JMeter)
+
+Load test bắn HTTP từ **máy host** vào API trong Docker.
+
+### Bước 1 — Bật stack
+
+```bash
+docker compose up -d --build
+```
+
+Profile `perf` (platform pool 32 thread — dễ thấy chênh lệch):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.perf.yml up -d --build
+```
+
+### Bước 2 — Cài JMeter (một lần)
+
+```bash
+jmeter -v
+```
+
+macOS: `brew install jmeter`
+
+### Bước 3 — Chạy test
+
+```bash
+chmod +x loadtest/script_run/*.sh scripts/*.sh
+
+# Chỉ JMeter (stack đã chạy)
+cd loadtest/script_run
+./run-phase2-http-concurrency.sh localhost 8080 30 "500,1000,2000" 30
+
+# Hoặc full suite: Docker + JMeter + copy CSV cho UI
+./run-performance-suite.sh
+```
+
+Script gọi:
+
+- `POST /api/rewards/demo/platform/lock`
+- `POST /api/rewards/demo/virtual/lock`
+
+### Bước 4 — Xem kết quả
+
+| Nơi | Nội dung |
+|-----|----------|
+| `loadtest/results_csv/phase2_http_report.md` | Báo cáo markdown |
+| `loadtest/results_csv/phase2_http_concurrency.csv` | CSV chi tiết |
+| `loadtest/result_jtl/*.jtl` | Raw JMeter |
+| http://localhost:5173/custom-tests | Biểu đồ Phase 2 (cần `frontend/public/results_csv/phase2_results.csv` — suite tự tạo) |
+
+Chi tiết thêm: [`loadtest/PERFORMANCE.md`](loadtest/PERFORMANCE.md)
+
+---
+
+## API chính
+
+**Production checkout**
+
+```http
+POST /api/rewards/checkout
+Content-Type: application/json
+
+{"customerId":"c1","transactionId":"txn-unique","amount":100}
+```
+
+**Demo so sánh thread** (`app.demo.enabled=true`)
+
+```http
+POST /api/rewards/demo/platform/lock
+POST /api/rewards/demo/virtual/lock
+```
+
+**Vận hành**
+
+- `GET /api/rewards/points/{customerId}`
+- `POST /api/rewards/points/clear` — xóa dữ liệu test
+- Postman: `boost/postman/boost-rewards.postman_collection.json`
+
+---
+
+## Cấu hình
+
+File chính: `boost/src/main/resources/application.yml`
+
+```yaml
+spring.threads.virtual.enabled: true
+app.demo.enabled: true
+app.executors.platform.size: 200   # giảm còn 32 khi profile perf
+```
+
+Profile `mysql-only`: bỏ Redis, ghi thẳng MySQL.
+
+---
+
+## CI
+
+GitHub Actions: `.github/workflows/ci.yml` — `mvn test` + `npm run build`.

@@ -1,19 +1,20 @@
-# Build
+# Build from repo root: docker build -f boost/Dockerfile .
 FROM maven:3.9-eclipse-temurin-21-alpine AS build
 WORKDIR /app
 
 COPY pom.xml .
-COPY src ./src
+COPY rewards-common ./rewards-common
+COPY boost ./boost
+COPY rewards-batch ./rewards-batch
 
-RUN mvn -B -DskipTests package
+RUN mvn -B -pl rewards-common,boost -am -DskipTests package
 
-# Run
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 RUN addgroup -S spring && adduser -S spring -G spring
 
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/boost/target/*.jar app.jar
 
 USER spring:spring
 

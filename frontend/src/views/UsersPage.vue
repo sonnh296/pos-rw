@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { userService } from "@/api/user.service";
+import { rewardsService } from "@/api/rewards.service";
 import type { CustomerPointRow } from "@/types";
 import BaseCard from "@/components/ui/BaseCard.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
@@ -17,7 +17,7 @@ async function loadPoints() {
   pointsLoading.value = true;
   pointsError.value = null;
   
-  const res = await userService.getPoints({
+  const res = await rewardsService.getPoints({
     limit: pointsLimit.value,
     offset: pointsOffset.value,
     keyword: pointsSearch.value.trim() || undefined
@@ -37,7 +37,7 @@ async function clearAllData() {
     return;
     
   pointsLoading.value = true;
-  const res = await userService.clearAllPoints();
+  const res = await rewardsService.clearAllPoints();
   pointsLoading.value = false;
 
   if (!res.ok) {

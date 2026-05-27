@@ -8,6 +8,7 @@ import Phase2Card from '@/components/features/Phase2Card.vue';
 
 const phase1Summary = ref<Phase1Result['summary'] | null>(null);
 const phase2Summary = ref<Phase2Result['summary'] | null>(null);
+const phase2ByRps = ref<Phase2Result['byRps']>(undefined);
 const isGlobalLoading = ref(false);
 
 async function fetchAll() {
@@ -62,39 +63,74 @@ async function fetchPhase1() {
   }
 }
 
-// Parse CSV: executor,iteration,duration_ms,throughput_rps,p95_ms
+// CSV ramp: executor,rps,duration_ms,throughput_rps,p95_ms,p99_ms
+// CSV legacy: executor,iteration,duration_ms,throughput_rps,p95_ms[,p99_ms]
 async function fetchPhase2() {
   const res = await testService.getPhase2Csv();
   if (res.ok && res.data) {
     const lines = res.data.split('\n').map(l => l.trim()).filter(l => l);
-    if (lines.length <= 1) return; // Only header or empty
-    
-    const summary: Record<string, any> = {};
-    const groups: Record<string, any[]> = {};
-    
-    // Skip header
+    if (lines.length <= 1) return;
+
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const rpsIdx = header.indexOf('rps');
+    const isRamp = rpsIdx >= 0;
+
+    const summary: Record<string, { avgThroughput: number; avgP95: number; avgP99: number }> = {};
+    const groups: Record<string, { throughputRps: number; p95Ms: number; p99Ms: number; rps?: number }[]> = {};
+    const rampByRps = new Map<number, Record<string, { throughputRps: number; p95Ms: number; p99Ms: number }>>();
+
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split(',');
       if (parts.length < 5) continue;
-      
+
       const executor = parts[0];
-      const throughputRps = parseFloat(parts[3]) || 0;
-      const p95Ms = parseInt(parts[4], 10) || 0;
-      
+      let throughputRps: number;
+      let p95Ms: number;
+      let p99Ms: number;
+      let rps: number | undefined;
+
+      if (isRamp) {
+        rps = parseInt(parts[rpsIdx], 10) || 0;
+        throughputRps = parseFloat(parts[header.indexOf('throughput_rps')]) || 0;
+        p95Ms = parseInt(parts[header.indexOf('p95_ms')], 10) || 0;
+        p99Ms = parseInt(parts[header.indexOf('p99_ms')], 10) || 0;
+      } else {
+        throughputRps = parseFloat(parts[3]) || 0;
+        p95Ms = parseInt(parts[4], 10) || 0;
+        p99Ms = parseInt(parts[5], 10) || 0;
+      }
+
       if (!groups[executor]) groups[executor] = [];
-      groups[executor].push({ throughputRps, p95Ms });
+      groups[executor].push({ throughputRps, p95Ms, p99Ms, rps });
+
+      if (rps != null && rps > 0) {
+        if (!rampByRps.has(rps)) rampByRps.set(rps, {});
+        rampByRps.get(rps)![executor] = { throughputRps, p95Ms, p99Ms };
+      }
     }
-    
+
     for (const key of Object.keys(groups)) {
       const items = groups[key];
       const total = items.length;
-      const avgThroughput = items.reduce((sum, i) => sum + i.throughputRps, 0) / total;
-      const avgP95 = items.reduce((sum, i) => sum + i.p95Ms, 0) / total;
-      
-      summary[key] = { avgThroughput, avgP95 };
+      summary[key] = {
+        avgThroughput: items.reduce((sum, i) => sum + i.throughputRps, 0) / total,
+        avgP95: items.reduce((sum, i) => sum + i.p95Ms, 0) / total,
+        avgP99: items.reduce((sum, i) => sum + i.p99Ms, 0) / total,
+      };
     }
-    
+
     phase2Summary.value = summary;
+
+    if (rampByRps.size > 0) {
+      const sorted = [...rampByRps.keys()].sort((a, b) => a - b);
+      phase2ByRps.value = {
+        rpsLevels: sorted,
+        PLATFORM: sorted.map(rps => ({ rps, ...rampByRps.get(rps)!.PLATFORM })),
+        VIRTUAL: sorted.map(rps => ({ rps, ...rampByRps.get(rps)!.VIRTUAL })),
+      };
+    } else {
+      phase2ByRps.value = undefined;
+    }
   }
 }
 
@@ -104,6 +140,7 @@ async function clearResults() {
   await testService.clear();
   phase1Summary.value = null;
   phase2Summary.value = null;
+  phase2ByRps.value = undefined;
   isGlobalLoading.value = false;
 }
 </script>
@@ -138,8 +175,9 @@ async function clearResults() {
       />
 
       <!-- Phase 2 -->
-      <Phase2Card 
-        :summary="phase2Summary" 
+      <Phase2Card
+        :summary="phase2Summary"
+        :by-rps="phase2ByRps"
         :isRunning="false"
         @refresh="fetchPhase2"
       />

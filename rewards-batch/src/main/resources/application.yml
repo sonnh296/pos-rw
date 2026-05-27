@@ -6,6 +6,11 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+  redis:
+    redisson:
+      config:
+        singleServerConfig:
+          address: "redis://${spring.data.redis.host:localhost}:${spring.data.redis.port:6379}"
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/rewards?allowPublicKeyRetrieval=true&useSSL=false&characterEncoding=UTF-8}
     username: ${SPRING_DATASOURCE_USERNAME:rewards}
@@ -19,7 +24,13 @@ app:
   outbox:
     redis-list-key: rewards:outbox
     batch-size: 200
-    fixed-delay-ms: 60000  # 1 phút chạy 1 lần (fixedDelay)
+    fixed-delay-ms: 1000
+    retry:
+      redis-list-key: rewards:outbox:retry
+      fixed-delay-ms: 2000
+      max-attempts: 5
+      base-delay-ms: 1000
+    dlq-key: rewards:outbox:dlq
 
 management:
   endpoints:

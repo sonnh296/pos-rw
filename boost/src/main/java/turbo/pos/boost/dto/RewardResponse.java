@@ -16,4 +16,6 @@ public class RewardResponse {
 	private String status;
 	private String threadName;
 	private long processingTimeMs;
+	private Boolean degraded;
+	private String fallbackSource;
 }

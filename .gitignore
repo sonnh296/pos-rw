@@ -7,18 +7,30 @@ frontend/dist-ssr/
 frontend/*.local
 frontend/.env
 
-# Java/Maven (backend)
+# Java/Maven
 boost/target/
-boost/**/target/
-boost/rewards-batch/target/
+rewards-batch/target/
+rewards-common/target/
+**/target/
 
 # IDE
 .idea/
 .vscode/
 
-boost/jmeter/results/
+# Load test artifacts (scripts + jmx are tracked)
+loadtest/result_jtl/
+loadtest/jmeter.log
+loadtest/benchmark-ramp-results/
+loadtest/demo-data/
+loadtest/results_csv/*.csv
+loadtest/results_csv/*.md
+loadtest/results_csv/*.log
+boost/jmeter/
+boost/jmeter.log
+html-report/
+results.jtl
+jmeter.log
 
-loadtest/
-
-frontend/public/results_csv
-
+# jqwik test database cache
+.jqwik-database
+**/.jqwik-database

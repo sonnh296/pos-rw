@@ -1,0 +1,24 @@
+# Profile for performance demos: Redis pool lớn + platform pool nhỏ để so sánh rõ với virtual threads.
+logging:
+  level:
+    turbo.pos.boost: INFO
+    org.redisson: WARN
+
+spring:
+  redis:
+    redisson:
+      config:
+        singleServerConfig:
+          connectionPoolSize: 512
+          connectionMinimumIdleSize: 64
+          subscriptionConnectionPoolSize: 64
+
+app:
+  executors:
+    platform:
+      size: 32
+  diagnostics:
+    reward-timing: true
+  benchmark:
+    max-requests-per-second: 5000
+    await-timeout-seconds: 1800

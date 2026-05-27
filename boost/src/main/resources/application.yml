@@ -4,7 +4,7 @@ server:
 spring:
   threads:
     virtual:
-      enabled: false
+      enabled: true
 
   data:
     redis:
@@ -21,11 +21,13 @@ spring:
       config:
         singleServerConfig:
           address: "redis://${spring.data.redis.host:localhost}:${spring.data.redis.port:6379}"
-          connectionPoolSize: 200
-          connectionMinimumIdleSize: 10
-          # idleConnectionTimeout: 10000
-          # connectTimeout: 10000
-          # timeout: 3000
+          connectionPoolSize: 2048
+          connectionMinimumIdleSize: 256
+          idleConnectionTimeout: 30000
+          connectTimeout: 5000
+          timeout: 3000
+          retryAttempts: 2
+          retryInterval: 1000
 
 logging:
   level:
@@ -33,14 +35,47 @@ logging:
 
 # redis (default) | mysql-only — profile mysql-only bật sẵn trong application-mysql-only.yml
 app:
+  concurrency:
+    enabled: true
+    max-concurrent-requests: 1500
+    acquire-timeout-millis: 100
+  sharding:
+    enabled: false
+    shard-count: 8
+  executors:
+    platform:
+      size: 200
+  demo:
+    enabled: true
+  admin:
+    enabled: true
+  diagnostics:
+    reward-timing: false
+    samples: 30
+  benchmark:
+    enabled: true
+    max-requests-per-second: 10000
+    max-duration-seconds: 120
+    warmup-seconds: 10
+    await-timeout-seconds: 1800
+    ramp-default-levels: 500,1000,1500,2000,3000,4000,5000,6000,7000,8000,9000,10000
   rewards:
     mode: redis
+    stub-redis: false
+    use-lua: true
+    optimized: true
+    idempotency:
+      ttl-days: 7
+    lock:
+      wait-millis: 5000
+      lease-seconds: 30
+      retry-delay-millis: 10
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,circuitbreakers,circuitbreakerevents,metrics
       cors:
         allowed-origins: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
         allowed-methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
@@ -53,6 +88,10 @@ management:
   health:
     redis:
       enabled: true
+  metrics:
+    export:
+      simple:
+        enabled: true
 
 resilience4j:
   circuitbreaker:

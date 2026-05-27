@@ -15,6 +15,22 @@ export interface CustomerPointRow {
   updatedAt?: string | null;
 }
 
+export interface TransactionRequest {
+  customerId: string;
+  transactionId: string;
+  amount: number;
+}
+
+export interface RewardResponse {
+  customerId: string;
+  totalPoints: number;
+  status: string;
+  threadName: string;
+  processingTimeMs: number;
+  degraded?: boolean;
+  fallbackSource?: string;
+}
+
 export interface CustomerPointListResponse {
   rows: CustomerPointRow[];
   total: number;
@@ -38,9 +54,24 @@ export interface Phase1Result {
   }>;
 }
 
+export interface Phase2Point {
+  rps: number;
+  throughputRps: number;
+  p95Ms: number;
+  p99Ms: number;
+}
+
+export interface Phase2RampSeries {
+  rpsLevels: number[];
+  PLATFORM: Phase2Point[];
+  VIRTUAL: Phase2Point[];
+}
+
 export interface Phase2Result {
   summary: Record<string, {
     avgThroughput: number;
     avgP95: number;
+    avgP99: number;
   }>;
+  byRps?: Phase2RampSeries;
 }

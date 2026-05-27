@@ -14,11 +14,11 @@ import turbo.pos.boost.exception.RedisUnavailableException;
 import turbo.pos.boost.util.RewardUtils;
 import turbo.pos.boost.util.RedisUtils;
 
-/** No-lock Redis path: demo race / lost update (không MySQL, không outbox). */
+/** No-lock Redis path: demo race / lost update (không MySQL, không outbox). Mode: {@code redis-no-lock}. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "app.rewards.mode", havingValue = "redis", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.rewards.mode", havingValue = "redis-no-lock")
 public class NoLockRedisRewardService {
 
 	private static final String HASH_KEY = "customer:points";
